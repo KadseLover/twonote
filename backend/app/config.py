@@ -1,0 +1,37 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Google Drive (OAuth2)
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_refresh_token: str = ""
+    google_drive_folder_id: str = ""
+
+    # Gemini
+    gemini_api_key: str = ""
+
+    # JWT
+    jwt_secret_key: str = "change_me_in_production"
+    jwt_expire_minutes: int = 1440
+    jwt_algorithm: str = "HS256"
+
+    # CORS
+    cors_origins: str = "http://localhost:5173"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",")]
+
+    @property
+    def drive_oauth2_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret and self.google_refresh_token)
+
+
+settings = Settings()
