@@ -188,7 +188,8 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.875rem;
-  padding: 0.6rem 1.25rem;
+  /* rechts extra Platz, damit der fixierte Konto-Menü-Button nichts verdeckt */
+  padding: 0.6rem 3.5rem 0.6rem 1.25rem;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;

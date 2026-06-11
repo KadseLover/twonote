@@ -14,6 +14,8 @@ export const useAuthStore = defineStore('auth', () => {
   // Getters
   const isLoggedIn = computed(() => !!token.value)
   const username = computed(() => user.value?.username ?? '')
+  // Der allererste registrierte Account (id 1) darf neue Nutzer anlegen.
+  const isFirstUser = computed(() => user.value?.id === 1)
 
   // Actions
   async function login(username: string, password: string): Promise<void> {
@@ -79,6 +81,7 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isLoggedIn,
     username,
+    isFirstUser,
     login,
     logout,
     register,

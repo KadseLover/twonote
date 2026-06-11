@@ -18,11 +18,15 @@
 
       <div class="toolbar-divider"></div>
 
-      <!-- Farbe -->
+      <!-- Farben -->
       <div class="toolbar-group">
-        <label class="color-label" title="Farbe">
-          <input type="color" v-model="activeColor" />
-          <span>{{ activeColor }}</span>
+        <label class="color-label" title="Textfarbe">
+          <input type="color" v-model="textColor" />
+          <span>Text</span>
+        </label>
+        <label class="color-label" title="Markierungsfarbe">
+          <input type="color" v-model="highlightColor" />
+          <span>Markierung</span>
         </label>
       </div>
 
@@ -58,49 +62,48 @@
       </div>
     </div>
 
-    <!-- Seitenliste -->
+    <!-- Dokument: eine durchgehende Fläche über alle Seiten -->
     <div class="pages-scroll">
       <div
-        v-for="(size, idx) in pageSizes"
-        :key="idx"
-        class="page-wrapper"
-        :style="{ width: size.width * zoom + 'px', height: size.height * zoom + 'px' }"
+        class="doc"
+        :style="{ width: docWidth * zoom + 'px', height: docHeight * zoom + 'px' }"
       >
-        <div
-          class="page-stack"
+        <!-- PDF-Seiten als scharfe Bitmaps -->
+        <canvas
+          v-for="(page, idx) in pageLayout"
+          :key="idx"
+          :ref="(el: unknown) => setPdfCanvasRef(idx, el as HTMLCanvasElement | null)"
+          class="pdf-canvas"
           :style="{
-            width: size.width + 'px',
-            height: size.height + 'px',
-            transform: `scale(${zoom})`,
+            left: (docWidth - page.width) / 2 * zoom + 'px',
+            top: page.offsetY * zoom + 'px',
+            width: page.width * zoom + 'px',
+            height: page.height * zoom + 'px',
           }"
-        >
-          <canvas
-            :ref="(el: unknown) => setPdfCanvasRef(idx, el as HTMLCanvasElement | null)"
-            class="pdf-canvas"
-          ></canvas>
-          <canvas
-            :ref="(el: unknown) => setFabricCanvasRef(idx, el as HTMLCanvasElement | null)"
-            class="fabric-canvas"
-          ></canvas>
-        </div>
+        ></canvas>
+
+        <!-- EINE Fabric-Overlay-Canvas über das ganze Dokument -->
+        <canvas ref="fabricCanvasRef" class="fabric-overlay"></canvas>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import * as fabric from 'fabric'
 import { PDFDocument } from 'pdf-lib'
-import { filesApi } from '@/api'
+import { useFilesStore } from '@/stores/files'
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url
-).toString()
+// Vite liefert über den `?url`-Import die korrekte, gebundelte Worker-URL.
+// (Ein `new URL('pdfjs-dist/...', import.meta.url)` würde Vite NICHT auflösen.)
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 const PAGE_SCALE = 1.5
+const PAGE_GAP = 24 // logischer Abstand zwischen den Seiten (px bei Zoom 1)
+const SANS_FONT = 'Arial, Helvetica, sans-serif'
 
 // ─── Props & Emits ────────────────────────────────────────────────────────────
 const props = defineProps<{
@@ -112,22 +115,43 @@ const emit = defineEmits<{
   (e: 'save-status', status: string): void
 }>()
 
+const filesStore = useFilesStore()
+
 // ─── State ────────────────────────────────────────────────────────────────────
 let pdfDoc: pdfjsLib.PDFDocumentProxy | null = null
 
 const pageSizes = ref<{ width: number; height: number }[]>([])
 const pdfCanvasRefs: (HTMLCanvasElement | null)[] = []
-const fabricCanvasRefs: (HTMLCanvasElement | null)[] = []
-const fabricCanvases: fabric.Canvas[] = []
+const fabricCanvasRef = ref<HTMLCanvasElement | null>(null)
+let fabricCanvas: fabric.Canvas | null = null
 
-const activeTool = ref<'select' | 'text' | 'highlight' | 'checkbox'>('select')
-const activeColor = ref('#FFD700')
+const activeTool = ref<'select' | 'text' | 'highlight'>('select')
+const textColor = ref('#000000')       // Schrift: standardmäßig schwarz
+const highlightColor = ref('#ffeb3b')  // Markierung: standardmäßig gelb
 const saving = ref(false)
 
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 2.5
 const ZOOM_STEP = 0.1
 const zoom = ref(1)
+
+// ─── Layout: alle Seiten vertikal gestapelt in EINEM Koordinatenraum ──────────
+// Jede Seite sitzt bei `offsetY` (logische px); horizontal im Dokument zentriert.
+const pageLayout = computed(() => {
+  let offsetY = 0
+  return pageSizes.value.map((s) => {
+    const entry = { width: s.width, height: s.height, offsetY }
+    offsetY += s.height + PAGE_GAP
+    return entry
+  })
+})
+const docWidth = computed(() =>
+  pageSizes.value.reduce((max, s) => Math.max(max, s.width), 0),
+)
+const docHeight = computed(() => {
+  const total = pageSizes.value.reduce((sum, s) => sum + s.height + PAGE_GAP, 0)
+  return Math.max(0, total - PAGE_GAP)
+})
 
 function zoomIn() {
   zoom.value = Math.min(ZOOM_MAX, Math.round((zoom.value + ZOOM_STEP) * 100) / 100)
@@ -139,24 +163,34 @@ function resetZoom() {
   zoom.value = 1
 }
 
+let rerenderTimer: ReturnType<typeof setTimeout> | undefined
 watch(zoom, () => {
-  for (const c of fabricCanvases) {
-    if (c) c.calcOffset()
-  }
+  applyFabricZoom()
+  // Seiten in der neuen Zoom-Stufe scharf neu rendern (entkoppelt für flüssiges Zoomen)
+  clearTimeout(rerenderTimer)
+  rerenderTimer = setTimeout(rerenderAllPages, 150)
 })
+
+// Fabric-Overlay folgt dem Zoom über die interne Skalierung (scharfe Vektoren),
+// nicht über CSS-transform.
+function applyFabricZoom() {
+  if (!fabricCanvas) return
+  fabricCanvas.setZoom(zoom.value)
+  fabricCanvas.setDimensions({
+    width: docWidth.value * zoom.value,
+    height: docHeight.value * zoom.value,
+  })
+  fabricCanvas.requestRenderAll()
+}
 
 const tools = [
   { id: 'select',    icon: 'Auswahl',   label: 'Auswählen / Verschieben' },
   { id: 'text',      icon: 'Text',      label: 'Text schreiben' },
-  { id: 'highlight', icon: 'Markieren', label: 'Markieren (Highlight)' },
-  { id: 'checkbox',  icon: 'Checkbox',  label: 'Checkbox einfügen' },
+  { id: 'highlight', icon: 'Markieren', label: 'Markieren (Textmarker)' },
 ] as const
 
 function setPdfCanvasRef(idx: number, el: HTMLCanvasElement | null) {
   pdfCanvasRefs[idx] = el
-}
-function setFabricCanvasRef(idx: number, el: HTMLCanvasElement | null) {
-  fabricCanvasRefs[idx] = el
 }
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
@@ -174,20 +208,50 @@ onMounted(async () => {
 
   await nextTick()
 
+  initFabric()
+
   for (let i = 1; i <= pdfDoc.numPages; i++) {
     await renderPage(i)
-    initFabricForPage(i)
   }
 
-  updateAllFabricModes()
+  updateFabricMode()
+  window.addEventListener('keydown', onKeyDown)
 })
 
 onBeforeUnmount(() => {
-  for (const c of fabricCanvases) c.dispose()
-  fabricCanvases.length = 0
+  clearTimeout(rerenderTimer)
+  window.removeEventListener('keydown', onKeyDown)
+  if (fabricCanvas) {
+    fabricCanvas.dispose()
+    fabricCanvas = null
+  }
 })
 
+// Entf/Backspace löscht das ausgewählte Element – außer während Texteingabe.
+function onKeyDown(e: KeyboardEvent) {
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return
+  const canvas = fabricCanvas
+  if (!canvas) return
+
+  const target = e.target as HTMLElement | null
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+
+  const active = canvas.getActiveObject()
+  if (!active || (active as { isEditing?: boolean }).isEditing) return
+
+  e.preventDefault()
+  deleteSelected()
+}
+
 // ─── PDF rendern ──────────────────────────────────────────────────────────────
+// Render-Auflösung folgt Zoom und Bildschirm-Pixeldichte, damit die Seite beim
+// Hineinzoomen scharf bleibt. Begrenzt (Faktor 3), um den Speicher zu schonen.
+function currentRenderScale(): number {
+  const dpr = window.devicePixelRatio || 1
+  const quality = Math.min(zoom.value * dpr, 3)
+  return PAGE_SCALE * quality
+}
+
 async function renderPage(pageNum: number) {
   if (!pdfDoc) return
   const idx = pageNum - 1
@@ -195,7 +259,9 @@ async function renderPage(pageNum: number) {
   if (!canvas) return
 
   const page = await pdfDoc.getPage(pageNum)
-  const viewport = page.getViewport({ scale: PAGE_SCALE })
+  // Bitmap in hoher Auflösung rendern; die Anzeigegröße bleibt über CSS bei der
+  // logischen Seitengröße, sodass die Bitmap scharf heruntergerechnet wird.
+  const viewport = page.getViewport({ scale: currentRenderScale() })
   canvas.width = viewport.width
   canvas.height = viewport.height
 
@@ -203,103 +269,98 @@ async function renderPage(pageNum: number) {
   await page.render({ canvasContext: ctx, viewport }).promise
 }
 
-// ─── Fabric pro Seite ─────────────────────────────────────────────────────────
-function initFabricForPage(pageNum: number) {
-  const idx = pageNum - 1
-  const el = fabricCanvasRefs[idx]
-  const size = pageSizes.value[idx]
-  if (!el || !size) return
-
-  const canvas = new fabric.Canvas(el, {
-    width: size.width,
-    height: size.height,
-    selection: true,
-    preserveObjectStacking: true,
-  })
-
-  let isDrawing = false
-  let startX = 0
-  let startY = 0
-  let highlightRect: fabric.Rect | null = null
-
-  canvas.on('mouse:down', (opt) => {
-    const ptr = canvas.getScenePoint(opt.e)
-    if (activeTool.value === 'highlight') {
-      isDrawing = true
-      startX = ptr.x
-      startY = ptr.y
-      highlightRect = new fabric.Rect({
-        left: startX,
-        top: startY,
-        width: 0,
-        height: 0,
-        fill: activeColor.value + '55',
-        stroke: activeColor.value,
-        strokeWidth: 1,
-        selectable: true,
-        evented: true,
-      })
-      canvas.add(highlightRect)
-    } else if (activeTool.value === 'text') {
-      addTextbox(canvas, ptr.x, ptr.y)
-    } else if (activeTool.value === 'checkbox') {
-      addCheckbox(canvas, ptr.x, ptr.y)
-    }
-  })
-
-  canvas.on('mouse:move', (opt) => {
-    if (!isDrawing || !highlightRect) return
-    const ptr = canvas.getScenePoint(opt.e)
-    const w = ptr.x - startX
-    const h = ptr.y - startY
-    highlightRect.set({
-      width: Math.abs(w),
-      height: Math.abs(h),
-      left: w < 0 ? ptr.x : startX,
-      top: h < 0 ? ptr.y : startY,
-    })
-    canvas.renderAll()
-  })
-
-  canvas.on('mouse:up', () => {
-    if (isDrawing) {
-      isDrawing = false
-      highlightRect = null
-    }
-  })
-
-  fabricCanvases[idx] = canvas
+async function rerenderAllPages() {
+  if (!pdfDoc) return
+  for (let i = 1; i <= pdfDoc.numPages; i++) {
+    await renderPage(i)
+  }
 }
 
-function updateAllFabricModes() {
-  for (const canvas of fabricCanvases) {
-    if (!canvas) continue
-    canvas.isDrawingMode = false
-    canvas.selection = activeTool.value === 'select'
-    canvas.forEachObject((obj) => {
-      obj.selectable = activeTool.value === 'select'
-      obj.evented = activeTool.value === 'select' || obj.type === 'group'
+// ─── Fabric: eine Canvas über alle Seiten ─────────────────────────────────────
+function initFabric() {
+  const el = fabricCanvasRef.value
+  if (!el) return
+
+  const canvas = new fabric.Canvas(el, {
+    width: docWidth.value,
+    height: docHeight.value,
+    selection: true,
+    preserveObjectStacking: true,
+    enableRetinaScaling: true,
+  })
+
+  canvas.on('mouse:down', (opt) => {
+    if (activeTool.value === 'text') {
+      const ptr = canvas.getScenePoint(opt.e)
+      addTextbox(ptr.x, ptr.y)
+    }
+  })
+
+  // Frisch gezeichneter Textmarker-Strich: einheitlich überlagern und auswählbar.
+  canvas.on('path:created', (opt) => {
+    const path = (opt as unknown as { path: fabric.Path }).path
+    if (!path) return
+    path.set({
+      globalCompositeOperation: 'multiply',
+      selectable: activeTool.value === 'select',
+      evented: activeTool.value === 'select',
+      perPixelTargetFind: true,
     })
-    canvas.renderAll()
+    canvas.requestRenderAll()
+  })
+
+  fabricCanvas = canvas
+  applyFabricZoom()
+}
+
+function makeHighlighterBrush(canvas: fabric.Canvas) {
+  const brush = new fabric.PencilBrush(canvas)
+  brush.width = 18
+  brush.color = highlightColor.value + '66' // halbtransparent → Text bleibt lesbar
+  brush.strokeLineCap = 'round'
+  brush.strokeLineJoin = 'round'
+  brush.decimate = 4
+  return brush
+}
+
+function updateFabricMode() {
+  const canvas = fabricCanvas
+  if (!canvas) return
+
+  const isSelect = activeTool.value === 'select'
+  const isHighlight = activeTool.value === 'highlight'
+
+  canvas.isDrawingMode = isHighlight
+  if (isHighlight) {
+    canvas.freeDrawingBrush = makeHighlighterBrush(canvas)
   }
+  canvas.selection = isSelect
+  canvas.forEachObject((obj) => {
+    obj.selectable = isSelect
+    obj.evented = isSelect
+  })
+  canvas.requestRenderAll()
 }
 
 // ─── Werkzeuge ────────────────────────────────────────────────────────────────
 function setTool(tool: typeof activeTool.value) {
   activeTool.value = tool
-  updateAllFabricModes()
+  updateFabricMode()
 }
 
-function addTextbox(canvas: fabric.Canvas, x: number, y: number) {
+function addTextbox(x: number, y: number) {
+  const canvas = fabricCanvas
+  if (!canvas) return
   const textbox = new fabric.Textbox('Text eingeben', {
     left: x,
     top: y,
     width: 180,
     fontSize: 16,
-    fill: activeColor.value,
+    fontFamily: SANS_FONT,
+    fill: textColor.value,
     backgroundColor: 'rgba(255,255,255,0.7)',
-    borderColor: activeColor.value,
-    cornerColor: activeColor.value,
+    borderColor: textColor.value,
+    cornerColor: textColor.value,
     selectable: true,
     evented: true,
     editable: true,
@@ -307,136 +368,113 @@ function addTextbox(canvas: fabric.Canvas, x: number, y: number) {
   canvas.add(textbox)
   canvas.setActiveObject(textbox)
   textbox.enterEditing()
-  canvas.renderAll()
-  setTool('select')
-}
-
-function addCheckbox(canvas: fabric.Canvas, x: number, y: number) {
-  const size = 20
-  const box = new fabric.Rect({
-    width: size,
-    height: size,
-    fill: 'rgba(255,255,255,0.9)',
-    stroke: activeColor.value,
-    strokeWidth: 2,
-    rx: 3,
-    ry: 3,
-  })
-
-  const checkmark = new fabric.Text('✓', {
-    fontSize: 14,
-    fill: activeColor.value,
-    left: 3,
-    top: 1,
-    selectable: false,
-    evented: false,
-    visible: false,
-  })
-
-  const group = new fabric.Group([box, checkmark], {
-    left: x,
-    top: y,
-    selectable: true,
-    evented: true,
-    hasControls: true,
-    subTargetCheck: false,
-  })
-  ;(group as any).data = { checked: false }
-
-  group.on('mousedown', () => {
-    if (activeTool.value !== 'select') return
-    const data = (group as any).data as { checked: boolean }
-    data.checked = !data.checked
-    const mark = group.item(1) as fabric.Text
-    mark.set('visible', data.checked)
-    canvas.renderAll()
-  })
-
-  canvas.add(group)
-  canvas.renderAll()
+  canvas.requestRenderAll()
   setTool('select')
 }
 
 function deleteSelected() {
-  for (const canvas of fabricCanvases) {
-    if (!canvas) continue
-    const active = canvas.getActiveObject()
-    if (active) {
-      canvas.remove(active)
-      canvas.discardActiveObject()
-      canvas.renderAll()
-      return
-    }
-  }
+  const canvas = fabricCanvas
+  if (!canvas) return
+  const active = canvas.getActiveObjects()
+  if (active.length === 0) return
+  for (const obj of active) canvas.remove(obj)
+  canvas.discardActiveObject()
+  canvas.requestRenderAll()
 }
 
 function clearAll() {
   if (!confirm('Alle Annotationen auf allen Seiten löschen?')) return
-  for (const canvas of fabricCanvases) {
-    if (!canvas) continue
-    canvas.clear()
-    canvas.renderAll()
-  }
+  if (!fabricCanvas) return
+  fabricCanvas.clear()
+  fabricCanvas.requestRenderAll()
 }
 
 // ─── PDF speichern ────────────────────────────────────────────────────────────
+// Eine durchgehende Canvas → je Seite die passende Region zuschneiden und
+// einbetten. So landen auch über Seitengrenzen gezogene Objekte korrekt auf
+// beiden Seiten.
 async function savePdf() {
-  if (!pdfDoc) return
+  if (!pdfDoc || !fabricCanvas) return
   saving.value = true
   emit('save-status', 'Speichern…')
+
+  const canvas = fabricCanvas
+  const prevZoom = canvas.getZoom()
 
   try {
     const originalBytes = new Uint8Array(props.pdfData.slice(0))
     const pdfLibDoc = await PDFDocument.load(originalBytes)
     const pages = pdfLibDoc.getPages()
 
-    for (let i = 0; i < fabricCanvases.length; i++) {
-      const fc = fabricCanvases[i]
-      if (!fc || fc.getObjects().length === 0) continue
+    // Für den Export in logische Koordinaten zurückschalten.
+    canvas.discardActiveObject()
+    canvas.setZoom(1)
+    canvas.setDimensions({ width: docWidth.value, height: docHeight.value })
+    canvas.renderAll()
 
-      const pngDataUrl = fc.toDataURL({ format: 'png', multiplier: 1 })
+    const layout = pageLayout.value
+    const OUTPUT_MULT = 2
+
+    for (let i = 0; i < pages.length && i < layout.length; i++) {
+      const page = layout[i]
+      const region = {
+        left: (docWidth.value - page.width) / 2,
+        top: page.offsetY,
+        width: page.width,
+        height: page.height,
+      }
+      const pageCanvas = canvas.toCanvasElement(OUTPUT_MULT, region)
+      const pngDataUrl = pageCanvas.toDataURL('image/png')
       const pngBytes = await fetch(pngDataUrl).then((r) => r.arrayBuffer())
       const pngImage = await pdfLibDoc.embedPng(pngBytes)
 
       const pdfPage = pages[i]
       const { width, height } = pdfPage.getSize()
-      pdfPage.drawImage(pngImage, {
-        x: 0,
-        y: 0,
-        width,
-        height,
-        opacity: 1,
-      })
+      pdfPage.drawImage(pngImage, { x: 0, y: 0, width, height, opacity: 1 })
     }
 
     const pdfBytes = await pdfLibDoc.save()
     const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' })
     const file = new File([blob], 'annotated.pdf', { type: 'application/pdf' })
 
-    await filesApi.update(props.fileId, file)
+    await filesStore.updateFileContent(props.fileId, file)
 
     emit('save-status', 'Gespeichert')
   } catch (e: any) {
     console.error('Speichern fehlgeschlagen:', e)
     emit('save-status', 'Fehler beim Speichern')
   } finally {
+    // Anzeige-Zoom wiederherstellen.
+    canvas.setZoom(prevZoom)
+    canvas.setDimensions({
+      width: docWidth.value * prevZoom,
+      height: docHeight.value * prevZoom,
+    })
+    canvas.requestRenderAll()
     saving.value = false
   }
 }
 
-// Farbänderung → aktives Objekt auf einem beliebigen Canvas neu einfärben
-watch(activeColor, (color) => {
-  for (const canvas of fabricCanvases) {
-    if (!canvas) continue
-    const active = canvas.getActiveObject()
-    if (!active) continue
-    if (active.type === 'textbox' || active.type === 'i-text') {
-      active.set('fill', color)
-    } else if (active.type === 'rect') {
-      active.set({ fill: color + '55', stroke: color })
-    }
-    canvas.renderAll()
-    return
+// Textfarbe ändern → ausgewählten Text neu einfärben.
+watch(textColor, (color) => {
+  if (!fabricCanvas) return
+  const active = fabricCanvas.getActiveObject()
+  if (active && (active.type === 'textbox' || active.type === 'i-text')) {
+    active.set('fill', color)
+    fabricCanvas.requestRenderAll()
+  }
+})
+
+// Markierungsfarbe ändern → Pinsel und ausgewählten Marker aktualisieren.
+watch(highlightColor, (color) => {
+  if (!fabricCanvas) return
+  if (fabricCanvas.isDrawingMode && fabricCanvas.freeDrawingBrush) {
+    fabricCanvas.freeDrawingBrush.color = color + '66'
+  }
+  const active = fabricCanvas.getActiveObject()
+  if (active && active.type === 'path') {
+    active.set('stroke', color + '66')
+    fabricCanvas.requestRenderAll()
   }
 })
 </script>
@@ -542,41 +580,38 @@ watch(activeColor, (color) => {
   background: var(--bg-tertiary);
 }
 
-/* ── Seitenliste ── */
+/* ── Dokumentfläche ── */
 .pages-scroll {
   flex: 1;
   overflow: auto;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
+  justify-content: center;
   padding: 1.5rem;
   background: #181818;
 }
 
-.page-wrapper {
+.doc {
   position: relative;
   flex-shrink: 0;
 }
 
-.page-stack {
+.pdf-canvas {
+  position: absolute;
+  background: #fff;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
+}
+
+/* Fabric legt einen .canvas-container über das ganze Dokument. */
+.fabric-overlay {
   position: absolute;
   top: 0;
   left: 0;
-  transform-origin: top left;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
-  background: #fff;
-}
-
-.pdf-canvas,
-.fabric-canvas {
-  position: absolute;
-  inset: 0;
 }
 
 :deep(.canvas-container) {
   position: absolute !important;
-  inset: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
 }
 
 .zoom-display {

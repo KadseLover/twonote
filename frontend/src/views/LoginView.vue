@@ -3,7 +3,7 @@
     <div class="login-card">
       <div class="login-header">
         <h1>TwoNote</h1>
-        <p>Dein persönlicher Dokumenten-Manager</p>
+        <p>Danke für den Namen Aron</p>
       </div>
 
       <!-- Tab-Umschalter -->

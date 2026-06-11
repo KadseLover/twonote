@@ -1,13 +1,7 @@
 <template>
   <div class="workspace">
-    <!-- Kopfzeile -->
-    <header class="app-header">
-      <h1>TwoNote</h1>
-      <div class="header-right">
-        <span class="username">{{ auth.username }}</span>
-        <button class="btn btn-ghost" @click="handleLogout">Abmelden</button>
-      </div>
-    </header>
+    <!-- Konto-Menü oben rechts (ersetzt die frühere Kopfzeile) -->
+    <UserMenu />
 
     <div class="workspace-body">
       <!-- Linke Leiste: Upload (oben) + Datei-Liste -->
@@ -86,16 +80,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
 import { useFilesStore } from '@/stores/files'
 import { type DriveFile } from '@/api'
 import FileUpload from '@/components/FileUpload.vue'
 import FileSidebarList from '@/components/FileSidebarList.vue'
 import DocumentViewer from '@/components/DocumentViewer.vue'
+import UserMenu from '@/components/UserMenu.vue'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
 const filesStore = useFilesStore()
 
 const activeFileId = computed(() => (route.params.id as string) || '')
@@ -148,11 +141,6 @@ onMounted(() => {
   filesStore.fetchFiles()
 })
 
-function handleLogout() {
-  auth.logout()
-  router.push({ name: 'login' })
-}
-
 function navigateIntoFolder(file: DriveFile) {
   filesStore.navigateIntoFolder(file)
 }
@@ -182,35 +170,6 @@ function onFileUploaded() {
   flex-direction: column;
   height: 100vh;
   background: var(--bg-primary);
-}
-
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1.5rem;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.app-header h1 {
-  margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-}
-
-.username {
-  color: var(--text-muted);
-  font-size: 0.8125rem;
 }
 
 .workspace-body {
@@ -376,26 +335,6 @@ function onFileUploaded() {
   width: 48px;
   height: 48px;
   color: var(--text-faint);
-}
-
-.btn {
-  padding: 0.4rem 0.875rem;
-  border-radius: 4px;
-  border: 1px solid var(--border-default);
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  transition: all 0.15s;
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text-muted);
-}
-
-.btn-ghost:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
 }
 
 /* ── Schmale Bildschirme: Leiste oben, Viewer darunter ──────── */
