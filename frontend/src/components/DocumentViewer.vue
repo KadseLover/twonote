@@ -1,18 +1,11 @@
 <template>
-  <div class="editor-view">
-    <!-- Header -->
-    <header class="editor-header">
-      <div class="header-left">
-        <button class="btn-back" @click="router.push({ name: 'home' })">
-          ← Zurück
-        </button>
-        <h2 class="file-name">{{ filename }}</h2>
-      </div>
-      <div class="header-right">
-        <span v-if="saveStatus" class="save-status" :class="saveStatusClass">
-          {{ saveStatus }}
-        </span>
-      </div>
+  <div class="document-viewer">
+    <!-- Kopfzeile: Dateiname + Speicher-Status -->
+    <header class="viewer-header">
+      <h2 class="file-name" :title="filename">{{ filename }}</h2>
+      <span v-if="saveStatus" class="save-status" :class="saveStatusClass">
+        {{ saveStatus }}
+      </span>
     </header>
 
     <!-- Lade-Zustand -->
@@ -27,10 +20,10 @@
       <button @click="loadFile">Erneut versuchen</button>
     </div>
 
-    <!-- Editor-Layout -->
-    <div v-else class="editor-layout">
+    <!-- Viewer-Layout -->
+    <div v-else class="viewer-layout">
       <!-- Hauptbereich: PDF-Editor oder Word-Viewer -->
-      <div class="editor-main">
+      <div class="viewer-main">
         <PdfEditor
           v-if="docData && isPdf"
           :pdf-data="docData"
@@ -58,7 +51,7 @@
       ></div>
 
       <!-- KI-Zusammenfassung (Seitenleiste) -->
-      <aside class="editor-sidebar" :style="{ width: sidebarWidth + 'px' }">
+      <aside class="summary-sidebar" :style="{ width: sidebarWidth + 'px' }">
         <SummaryPanel :file-id="fileId" :filename="filename" />
       </aside>
     </div>
@@ -67,19 +60,20 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { useFilesStore } from '@/stores/files'
 import PdfEditor from '@/components/PdfEditor.vue'
 import WordViewer from '@/components/WordViewer.vue'
 import SummaryPanel from '@/components/SummaryPanel.vue'
 
-const route = useRoute()
-const router = useRouter()
+const props = defineProps<{
+  fileId: string
+}>()
+
 const filesStore = useFilesStore()
 
 const SIDEBAR_DEFAULT = 340
 const SIDEBAR_MIN = 240
-const SIDEBAR_MAX_RATIO = 0.7
+const SIDEBAR_MAX_RATIO = 0.6
 const SIDEBAR_STORAGE_KEY = 'twonote.sidebarWidth'
 
 const sidebarWidth = ref(loadSidebarWidth())
@@ -121,7 +115,6 @@ function resetSidebarWidth() {
   localStorage.setItem(SIDEBAR_STORAGE_KEY, String(SIDEBAR_DEFAULT))
 }
 
-const fileId = computed(() => route.params.id as string)
 const docData = ref<ArrayBuffer | null>(null)
 const mimeType = ref('')
 const loading = ref(true)
@@ -129,7 +122,7 @@ const loadError = ref('')
 const saveStatus = ref('')
 
 const filename = computed(
-  () => filesStore.getFileById(fileId.value)?.name ?? 'Dokument'
+  () => filesStore.getFileById(props.fileId)?.name ?? 'Dokument'
 )
 
 const isPdf = computed(
@@ -156,7 +149,7 @@ async function loadFile() {
   loading.value = true
   loadError.value = ''
   try {
-    const blob = await filesStore.downloadFileBlob(fileId.value)
+    const blob = await filesStore.downloadFileBlob(props.fileId)
     if (!blob) throw new Error('Datei konnte nicht geladen werden')
     mimeType.value = blob.type
     docData.value = await blob.arrayBuffer()
@@ -182,50 +175,29 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.editor-view {
+.document-viewer {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   background: var(--bg-primary);
 }
 
-.editor-header {
+.viewer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.875rem;
   padding: 0.6rem 1.25rem;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-}
-
-.btn-back {
-  background: transparent;
-  border: 1px solid var(--border-default);
-  color: var(--text-muted);
-  padding: 0.35rem 0.7rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8125rem;
-  transition: all 0.15s;
-}
-
-.btn-back:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
 .file-name {
   margin: 0;
   font-size: 0.9375rem;
   color: var(--text-primary);
-  max-width: 400px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -235,6 +207,7 @@ onMounted(() => {
   font-size: 0.8125rem;
   padding: 0.25rem 0.625rem;
   border-radius: 3px;
+  flex-shrink: 0;
 }
 
 .status-saving { background: #1a2a3a; color: #6aaddb; }
@@ -265,19 +238,20 @@ onMounted(() => {
   to { transform: rotate(360deg); }
 }
 
-.editor-layout {
+.viewer-layout {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
-.editor-main {
+.viewer-main {
   flex: 1;
   overflow: auto;
   background: #181818;
 }
 
-.editor-sidebar {
+.summary-sidebar {
   flex-shrink: 0;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border-default);
@@ -300,13 +274,13 @@ onMounted(() => {
 }
 
 @media (max-width: 900px) {
-  .editor-layout {
+  .viewer-layout {
     flex-direction: column;
   }
   .resize-handle {
     display: none;
   }
-  .editor-sidebar {
+  .summary-sidebar {
     width: 100% !important;
     height: 300px;
     border-left: none;

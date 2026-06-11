@@ -17,9 +17,11 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/editor/:id',
-      name: 'editor',
-      component: () => import('@/views/EditorView.vue'),
+      // Gleiche Ansicht wie 'home' – die Datei-ID steuert nur, welches
+      // Dokument im Viewer rechts geöffnet ist. Die Seitenleiste bleibt erhalten.
+      path: '/file/:id',
+      name: 'file',
+      component: () => import('@/views/HomeView.vue'),
       meta: { requiresAuth: true },
     },
   ],
