@@ -1,8 +1,119 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#4f46e5"/>
-  <rect x="8" y="6" width="12" height="16" rx="1.5" fill="none" stroke="white" stroke-width="1.5"/>
-  <polyline points="16,6 16,12 20,12" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <line x1="10" y1="15" x2="18" y2="15" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="10" y1="18" x2="18" y2="18" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="10" y1="21" x2="15" y2="21" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="12.315931mm"
+   height="12.315932mm"
+   viewBox="0 0 12.315931 12.315932"
+   version="1.1"
+   id="svg1"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     inkscape:document-units="px"
+     inkscape:export-bgcolor="#ffffff00">
+    <inkscape:page
+       x="0"
+       y="0"
+       width="12.315931"
+       height="12.315932"
+       id="page2"
+       margin="0"
+       bleed="0" />
+  </sodipodi:namedview>
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(0.00424161,-0.00993444)">
+    <rect
+       style="fill:#5048e4;fill-opacity:1;fill-rule:evenodd;stroke-width:0.005;stroke-dasharray:none;paint-order:normal"
+       id="rect1"
+       width="12.315931"
+       height="12.315931"
+       x="-0.0042416141"
+       y="0.009934443"
+       rx="0.91766047"
+       ry="0.91766047" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;fill-rule:evenodd;stroke-width:9.56462;stroke-dasharray:none;paint-order:normal"
+       id="rect2"
+       width="7.6366091"
+       height="9.9487572"
+       x="2.3404553"
+       y="1.1615771"
+       rx="0.614133"
+       ry="0.80007499" />
+    <rect
+       style="fill:#5048e4;fill-opacity:1;fill-rule:evenodd;stroke-width:0.00284187;stroke-dasharray:none;paint-order:normal"
+       id="rect3"
+       width="5.8742838"
+       height="8.3415747"
+       x="3.2581375"
+       y="1.9063091"
+       rx="0.43769312"
+       ry="0.62153107" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;fill-rule:evenodd;stroke-width:8.81323;stroke-dasharray:none;paint-order:normal"
+       id="rect5"
+       width="5.5542607"
+       height="0.79600847"
+       x="3.4041097"
+       y="8.6973925"
+       rx="0.39443377"
+       ry="0.39800423" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;fill-rule:evenodd;stroke-width:8.81323;stroke-dasharray:none;paint-order:normal"
+       id="rect6"
+       width="5.5542607"
+       height="0.79600847"
+       x="3.4041097"
+       y="7.0694904"
+       rx="0.39443377"
+       ry="0.39800423" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;fill-rule:evenodd;stroke-width:8.81323;stroke-dasharray:none;paint-order:normal"
+       id="rect8"
+       width="5.5542607"
+       height="0.79600847"
+       x="3.4041097"
+       y="5.4643564"
+       rx="0.39443377"
+       ry="0.39800423" />
+    <g
+       id="g10"
+       transform="translate(-6.6311384,-0.54073661)">
+      <rect
+         style="fill:#ffffff;fill-opacity:1;fill-rule:evenodd;stroke-width:9.14904;stroke-dasharray:none;paint-order:normal"
+         id="rect9"
+         width="0.72857141"
+         height="2.4930806"
+         x="13.489955"
+         y="2.1970983"
+         rx="0.3041417"
+         ry="0.2773405" />
+      <rect
+         style="fill:#ffffff;fill-opacity:1;fill-rule:evenodd;stroke-width:9.14904;stroke-dasharray:none;paint-order:normal"
+         id="rect10"
+         width="0.72857141"
+         height="2.4930806"
+         x="3.9672992"
+         y="-15.994419"
+         rx="0.3041417"
+         ry="0.2773405"
+         transform="rotate(90)" />
+    </g>
+  </g>
 </svg>
