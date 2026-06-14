@@ -3,20 +3,14 @@
     <div class="login-card">
       <div class="login-header">
         <h1>TwoNote</h1>
-        <p>Danke für den Namen Aron</p>
+        <p v-if="isRegister">Ersten Account anlegen – dieser wird zum Admin.</p>
+        <p v-else>Bitte melde dich an.</p>
       </div>
 
-      <!-- Tab-Umschalter -->
-      <div class="tab-switcher">
-        <button :class="{ active: mode === 'login' }" @click="mode = 'login'">
-          Anmelden
-        </button>
-        <button :class="{ active: mode === 'register' }" @click="mode = 'register'">
-          Registrieren
-        </button>
-      </div>
+      <!-- Lade-Zustand, bis der Setup-Status bekannt ist -->
+      <div v-if="needsSetup === null" class="loading-hint">Lädt…</div>
 
-      <form @submit.prevent="handleSubmit">
+      <form v-else @submit.prevent="handleSubmit">
         <div class="form-group">
           <label for="username">Benutzername</label>
           <input
@@ -25,6 +19,7 @@
             type="text"
             placeholder="Benutzername eingeben"
             required
+            minlength="3"
             autocomplete="username"
           />
         </div>
@@ -37,8 +32,8 @@
             type="password"
             placeholder="Passwort eingeben"
             required
-            autocomplete="current-password"
             minlength="6"
+            :autocomplete="isRegister ? 'new-password' : 'current-password'"
           />
         </div>
 
@@ -48,8 +43,8 @@
 
         <button type="submit" class="submit-btn" :disabled="loading">
           <span v-if="loading">Bitte warten…</span>
-          <span v-else-if="mode === 'login'">Anmelden →</span>
-          <span v-else>Registrieren →</span>
+          <span v-else-if="isRegister">Account anlegen →</span>
+          <span v-else>Anmelden →</span>
         </button>
       </form>
     </div>
@@ -57,31 +52,44 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { authApi } from '@/api'
 
 const router = useRouter()
 const auth = useAuthStore()
 
-const mode = ref<'login' | 'register'>('login')
+// null = Status wird geladen; true = keine Nutzer → Registrieren; false = Anmelden
+const needsSetup = ref<boolean | null>(null)
+const isRegister = computed(() => needsSetup.value === true)
+
 const form = ref({ username: '', password: '' })
 const error = ref('')
 const loading = ref(false)
+
+onMounted(async () => {
+  try {
+    const { data } = await authApi.setupStatus()
+    needsSetup.value = !data.has_users
+  } catch {
+    // Im Zweifel Anmelden anzeigen
+    needsSetup.value = false
+  }
+})
 
 async function handleSubmit() {
   error.value = ''
   loading.value = true
   try {
-    if (mode.value === 'login') {
-      await auth.login(form.value.username, form.value.password)
-      router.push({ name: 'home' })
-    } else {
+    if (isRegister.value) {
       await auth.register(form.value.username, form.value.password)
       // Nach Registrierung direkt einloggen
       await auth.login(form.value.username, form.value.password)
-      router.push({ name: 'home' })
+    } else {
+      await auth.login(form.value.username, form.value.password)
     }
+    router.push({ name: 'home' })
   } catch (e: any) {
     error.value = auth.error || 'Ein Fehler ist aufgetreten.'
   } finally {
@@ -128,31 +136,11 @@ async function handleSubmit() {
   font-size: 0.875rem;
 }
 
-.tab-switcher {
-  display: flex;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  padding: 3px;
-  margin-bottom: 1.5rem;
-}
-
-.tab-switcher button {
-  flex: 1;
-  padding: 0.4rem;
-  border: none;
-  background: transparent;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 0.875rem;
+.loading-hint {
+  text-align: center;
   color: var(--text-muted);
-  transition: all 0.15s;
-}
-
-.tab-switcher button.active {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 1.5rem 0;
 }
 
 .form-group {

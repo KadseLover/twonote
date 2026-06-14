@@ -68,6 +68,7 @@ export const authApi = {
   registerAuth: (payload: RegisterPayload) =>
     api.post<UserResponse>('/api/auth/register-auth', payload),
   me: () => api.get<UserResponse>('/api/auth/me'),
+  setupStatus: () => api.get<{ has_users: boolean }>('/api/auth/setup-status'),
   listUsers: () => api.get<UserResponse[]>('/api/auth/users'),
   updateUser: (id: number, payload: { username?: string; password?: string }) =>
     api.patch<UserResponse>(`/api/auth/users/${id}`, payload),

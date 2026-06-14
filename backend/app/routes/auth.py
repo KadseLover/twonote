@@ -25,6 +25,12 @@ def count_users(session: Session) -> int:
     return len(users)
 
 
+@router.get("/setup-status")
+def setup_status(session: Session = Depends(get_session)):
+    """Öffentlich: gibt an, ob bereits Nutzer existieren (für die Login-Seite)."""
+    return {"has_users": count_users(session) > 0}
+
+
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def register(
     user_data: UserCreate,
