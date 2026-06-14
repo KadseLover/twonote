@@ -44,6 +44,19 @@ body {
   line-height: 1.5;
   color: var(--text-primary);
   background: var(--bg-primary);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Auf kleinen Bildschirmen Eingabefelder mit ≥16px rendern, damit iOS beim
+   Fokussieren nicht automatisch hineinzoomt. */
+@media (max-width: 760px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 #app {

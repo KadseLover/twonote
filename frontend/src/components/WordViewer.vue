@@ -183,4 +183,13 @@ onMounted(async () => {
 .warnings ul {
   margin: 0.4rem 0 0 1rem;
 }
+
+@media (max-width: 760px) {
+  .word-viewer {
+    padding: 0.5rem;
+  }
+  .document {
+    padding: 1.25rem 1rem;
+  }
+}
 </style>

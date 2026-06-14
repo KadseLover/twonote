@@ -75,6 +75,16 @@ async def get_current_user(
     return user
 
 
+async def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
+    """FastAPI Dependency: Erlaubt nur den ersten Nutzer (Admin, id == 1)."""
+    if current_user.id != 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Nur der Admin darf das.",
+        )
+    return current_user
+
+
 async def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme_optional),
     session: Session = Depends(get_session),

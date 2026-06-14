@@ -619,4 +619,32 @@ watch(highlightColor, (color) => {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Touch / schmale Bildschirme ── */
+@media (max-width: 760px) {
+  /* Toolbar als eine horizontal scrollbare Reihe statt mehrzeiligem Umbruch */
+  .toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+  .toolbar-group {
+    flex-shrink: 0;
+  }
+  .tool-btn {
+    min-height: 38px;
+    padding: 0.45rem 0.7rem;
+  }
+  /* Farbwähler-Beschriftung ausblenden, nur Farbfeld zeigen */
+  .color-label span {
+    display: none;
+  }
+  .pages-scroll {
+    padding: 0.5rem;
+  }
+}
 </style>

@@ -2,6 +2,9 @@
   <div class="summary-panel">
     <div class="panel-header">
       <h3>KI-Zusammenfassung</h3>
+      <router-link to="/archive" class="archive-link" title="Alle gespeicherten Zusammenfassungen">
+        Archiv
+      </router-link>
     </div>
 
     <div class="panel-body">
@@ -52,11 +55,19 @@
         <div class="markdown-body" v-html="renderedSummary"></div>
       </div>
     </div>
+
+    <!-- Footer: täglicher KI-Verbrauch -->
+    <div class="panel-footer" :title="`Zurücksetzung täglich um Mitternacht Pacific Time`">
+      <span class="usage-label">KI-Anfragen heute</span>
+      <span class="usage-count" :class="{ exhausted: usage && usage.used >= usage.limit }">
+        {{ usage ? `${usage.used} / ${usage.limit}` : '– / –' }}
+      </span>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { marked } from 'marked'
 import { filesApi } from '@/api'
 
@@ -70,6 +81,31 @@ const loading = ref(false)
 const error = ref('')
 const rateLimited = ref(false)
 const copied = ref(false)
+const usage = ref<{ used: number; limit: number; date: string } | null>(null)
+
+async function fetchUsage() {
+  try {
+    const { data } = await filesApi.aiUsage()
+    usage.value = data
+  } catch {
+    // Verbrauchsanzeige ist optional – Fehler still ignorieren
+  }
+}
+
+// Beim Öffnen: zuletzt gespeicherte Zusammenfassung automatisch laden
+async function loadSavedSummary() {
+  try {
+    const { data } = await filesApi.latestSummary(props.fileId)
+    if (data && data.content) summary.value = data.content
+  } catch {
+    // Kein gespeicherter Stand – Panel bleibt im Idle-Zustand
+  }
+}
+
+onMounted(() => {
+  fetchUsage()
+  loadSavedSummary()
+})
 
 const renderedSummary = computed(() => {
   if (!summary.value) return ''
@@ -91,6 +127,7 @@ async function summarize() {
     }
   } finally {
     loading.value = false
+    fetchUsage()
   }
 }
 
@@ -121,9 +158,28 @@ async function copyToClipboard() {
 }
 
 .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
+}
+
+.archive-link {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 0.2rem 0.55rem;
+  transition: all 0.15s;
+}
+
+.archive-link:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .panel-header h3 {
@@ -139,6 +195,31 @@ async function copyToClipboard() {
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
+}
+
+.panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--border-default);
+  font-size: 0.75rem;
+}
+
+.usage-label {
+  color: var(--text-muted);
+}
+
+.usage-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.usage-count.exhausted {
+  color: var(--color-red);
 }
 
 .idle-state {

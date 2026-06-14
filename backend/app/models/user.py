@@ -18,6 +18,12 @@ class UserCreate(UserBase):
     password: str = Field(min_length=6)
 
 
+class UserUpdate(SQLModel):
+    """Schema für Admin-Änderungen an einem Nutzer."""
+    username: Optional[str] = Field(default=None, min_length=3, max_length=50)
+    password: Optional[str] = Field(default=None, min_length=6)
+
+
 class UserRead(UserBase):
     """Schema für die API-Antwort (ohne Passwort)."""
     id: int

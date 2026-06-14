@@ -1,12 +1,11 @@
 <template>
   <div class="document-viewer">
-    <!-- Kopfzeile: Dateiname + Speicher-Status -->
-    <header class="viewer-header">
-      <h2 class="file-name" :title="filename">{{ filename }}</h2>
+    <!-- Speicher-Status als schwebende Anzeige -->
+    <transition name="toast">
       <span v-if="saveStatus" class="save-status" :class="saveStatusClass">
         {{ saveStatus }}
       </span>
-    </header>
+    </transition>
 
     <!-- Lade-Zustand -->
     <div v-if="loading" class="loading-overlay">
@@ -41,8 +40,20 @@
         </div>
       </div>
 
+      <!-- Toggle: Zusammenfassungs-Leiste ein-/zuklappen -->
+      <button
+        class="summary-toggle"
+        :title="summaryCollapsed ? 'Zusammenfassung einblenden' : 'Zusammenfassung zuklappen'"
+        @click="summaryCollapsed = !summaryCollapsed"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <polyline :points="summaryCollapsed ? '15 18 9 12 15 6' : '9 18 15 12 9 6'"/>
+        </svg>
+      </button>
+
       <!-- Resize-Handle -->
       <div
+        v-show="!summaryCollapsed"
         class="resize-handle"
         :class="{ dragging: isResizing }"
         @pointerdown="startResize"
@@ -50,8 +61,15 @@
         title="Ziehen zum Anpassen, Doppelklick zum Zurücksetzen"
       ></div>
 
+      <!-- Backdrop für die Zusammenfassung als Overlay (mobil) -->
+      <div
+        v-if="isMobile && !summaryCollapsed"
+        class="summary-backdrop"
+        @click="summaryCollapsed = true"
+      ></div>
+
       <!-- KI-Zusammenfassung (Seitenleiste) -->
-      <aside class="summary-sidebar" :style="{ width: sidebarWidth + 'px' }">
+      <aside v-show="!summaryCollapsed" class="summary-sidebar" :style="{ width: sidebarWidth + 'px' }">
         <SummaryPanel :file-id="fileId" :filename="filename" />
       </aside>
     </div>
@@ -59,25 +77,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useFilesStore } from '@/stores/files'
 import PdfEditor from '@/components/PdfEditor.vue'
 import WordViewer from '@/components/WordViewer.vue'
 import SummaryPanel from '@/components/SummaryPanel.vue'
+import { useIsMobile } from '@/utils/useIsMobile'
 
 const props = defineProps<{
   fileId: string
 }>()
 
 const filesStore = useFilesStore()
+const { isMobile } = useIsMobile()
 
 const SIDEBAR_DEFAULT = 340
 const SIDEBAR_MIN = 240
 const SIDEBAR_MAX_RATIO = 0.6
 const SIDEBAR_STORAGE_KEY = 'twonote.sidebarWidth'
+const SIDEBAR_COLLAPSED_KEY = 'twonote.summaryCollapsed'
 
 const sidebarWidth = ref(loadSidebarWidth())
 const isResizing = ref(false)
+// Auf dem Handy ist die Zusammenfassung standardmäßig zugeklappt (Overlay).
+const summaryCollapsed = ref(
+  isMobile.value ? true : localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+)
+
+watch(summaryCollapsed, (v) => {
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, v ? '1' : '0')
+})
 
 function loadSidebarWidth(): number {
   const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY)
@@ -176,6 +205,7 @@ onMounted(() => {
 
 <style scoped>
 .document-viewer {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -183,37 +213,33 @@ onMounted(() => {
   background: var(--bg-primary);
 }
 
-.viewer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.875rem;
-  /* rechts extra Platz, damit der fixierte Konto-Menü-Button nichts verdeckt */
-  padding: 0.6rem 3.5rem 0.6rem 1.25rem;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-default);
-  flex-shrink: 0;
-}
-
-.file-name {
-  margin: 0;
-  font-size: 0.9375rem;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* Schwebende Speicher-Status-Anzeige */
 .save-status {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 20;
   font-size: 0.8125rem;
-  padding: 0.25rem 0.625rem;
-  border-radius: 3px;
-  flex-shrink: 0;
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
 }
 
 .status-saving { background: #1a2a3a; color: #6aaddb; }
 .status-saved  { background: #1a2d1a; color: var(--color-green); }
 .status-error  { background: #2d1515; color: var(--color-red); }
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
 
 .loading-overlay,
 .error-state {
@@ -259,6 +285,34 @@ onMounted(() => {
   overflow-y: auto;
 }
 
+.summary-toggle {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 48px;
+  margin-top: 0.6rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.summary-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.summary-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 .resize-handle {
   width: 5px;
   flex-shrink: 0;
@@ -274,18 +328,28 @@ onMounted(() => {
   background: var(--accent);
 }
 
+/* Auf schmalen Bildschirmen wird die Zusammenfassung zum Overlay-Drawer von rechts. */
 @media (max-width: 900px) {
-  .viewer-layout {
-    flex-direction: column;
-  }
   .resize-handle {
     display: none;
   }
+
+  .summary-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 25;
+  }
+
   .summary-sidebar {
-    width: 100% !important;
-    height: 300px;
-    border-left: none;
-    border-top: 1px solid var(--border-default);
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(85%, 340px) !important;
+    border-left: 1px solid var(--border-default);
+    z-index: 26;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.45);
   }
 }
 </style>

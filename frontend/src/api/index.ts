@@ -68,6 +68,10 @@ export const authApi = {
   registerAuth: (payload: RegisterPayload) =>
     api.post<UserResponse>('/api/auth/register-auth', payload),
   me: () => api.get<UserResponse>('/api/auth/me'),
+  listUsers: () => api.get<UserResponse[]>('/api/auth/users'),
+  updateUser: (id: number, payload: { username?: string; password?: string }) =>
+    api.patch<UserResponse>(`/api/auth/users/${id}`, payload),
+  deleteUser: (id: number) => api.delete(`/api/auth/users/${id}`),
 }
 
 // ─── Dateien ─────────────────────────────────────────────────────────────────
@@ -125,4 +129,17 @@ export const filesApi = {
     api.post<{ file_id: string; filename: string; summary: string }>(
       `/api/files/${fileId}/summarize`
     ),
+
+  aiUsage: () =>
+    api.get<{ used: number; limit: number; date: string }>('/api/files/ai-usage'),
+
+  latestSummary: (fileId: string) =>
+    api.get<{ content: string; filename: string; created_at: string } | null>(
+      `/api/files/${fileId}/summary`
+    ),
+
+  allSummaries: () =>
+    api.get<
+      { id: number; file_id: string; filename: string; content: string; created_at: string }[]
+    >('/api/files/summaries'),
 }

@@ -1,16 +1,58 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import Session
 
+from app.database import get_session
 from app.models.user import User
+from app.models.usage import AiUsage  # noqa: F401  (Tabelle registrieren)
+from app.models.summary import Summary  # noqa: F401  (Tabelle registrieren)
 from app.services import drive as drive_service
 from app.services import gemini as gemini_service
+from app.services import usage as usage_service
+from app.services import summaries as summaries_service
 from app.services.auth import get_current_user
 
 router = APIRouter(prefix="/api/files", tags=["ai"])
 
 
+@router.get("/ai-usage", summary="Heutigen Gemini-Verbrauch abrufen")
+def ai_usage(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Gibt verbrauchte/erlaubte Gemini-Anfragen für den heutigen Tag zurück."""
+    return usage_service.get_usage(session)
+
+
+@router.get("/summaries", summary="Alle gespeicherten Zusammenfassungen (Archiv)")
+def list_summaries(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Globales Archiv: alle Zusammenfassungen über alle Dokumente, neueste zuerst."""
+    return summaries_service.get_all(session)
+
+
+@router.get("/{file_id}/summary", summary="Neueste gespeicherte Zusammenfassung einer Datei")
+def latest_summary(
+    file_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Gibt die zuletzt gespeicherte Zusammenfassung der Datei zurück (oder null)."""
+    row = summaries_service.get_latest_for_file(session, file_id)
+    if row is None:
+        return None
+    return {
+        "content": row.content,
+        "filename": row.filename,
+        "created_at": row.created_at,
+    }
+
+
 @router.post("/{file_id}/summarize", summary="Dokument mit Gemini AI zusammenfassen")
 def summarize_document(
     file_id: str,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -52,6 +94,11 @@ def summarize_document(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         )
+
+    # Erfolgreiche Anfrage für die Tagesstatistik zählen
+    usage_service.record_summary(session)
+    # Zusammenfassung im Verlauf/Archiv speichern
+    summaries_service.save_summary(session, file_id, filename, summary)
 
     return {
         "file_id": file_id,

@@ -18,3 +18,5 @@ passlib[bcrypt]==1.7.4
 # Config
 python-dotenv==1.0.1
 pydantic-settings==2.6.1
+# Zeitzonen-Daten (für Pacific-Time-Reset des Gemini-Kontingents)
+tzdata==2024.2

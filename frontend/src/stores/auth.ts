@@ -74,6 +74,40 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function fetchUsers(): Promise<UserResponse[]> {
+    error.value = null
+    try {
+      const { data } = await authApi.listUsers()
+      return data
+    } catch (e: any) {
+      error.value = e.response?.data?.detail ?? 'Nutzer konnten nicht geladen werden.'
+      throw e
+    }
+  }
+
+  async function updateUser(
+    id: number,
+    payload: { username?: string; password?: string }
+  ): Promise<void> {
+    error.value = null
+    try {
+      await authApi.updateUser(id, payload)
+    } catch (e: any) {
+      error.value = e.response?.data?.detail ?? 'Nutzer konnte nicht geändert werden.'
+      throw e
+    }
+  }
+
+  async function deleteUser(id: number): Promise<void> {
+    error.value = null
+    try {
+      await authApi.deleteUser(id)
+    } catch (e: any) {
+      error.value = e.response?.data?.detail ?? 'Nutzer konnte nicht gelöscht werden.'
+      throw e
+    }
+  }
+
   return {
     token,
     user,
@@ -86,5 +120,8 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     register,
     registerNewUser,
+    fetchUsers,
+    updateUser,
+    deleteUser,
   }
 })

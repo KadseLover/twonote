@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     # Gemini
     gemini_api_key: str = ""
+    # Tägliches Free-Tier-Limit (Requests/Tag) – nur zur Anzeige, anpassbar via .env
+    gemini_daily_limit: int = 1500
 
     # JWT
     jwt_secret_key: str = "change_me_in_production"

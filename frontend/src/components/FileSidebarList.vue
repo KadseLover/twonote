@@ -245,4 +245,33 @@ async function handleDownload(file: DriveFile) {
 .action-btn.delete:hover {
   color: var(--color-red);
 }
+
+/* Auf Touch-Geräten gibt es kein Hover → Aktionen immer einblenden. */
+@media (hover: none) {
+  .row-actions {
+    opacity: 1;
+  }
+}
+
+/* Größere Tap-Targets auf schmalen Bildschirmen */
+@media (max-width: 760px) {
+  .row-actions {
+    opacity: 1;
+  }
+  .row-main {
+    padding: 0.65rem 0.5rem;
+    font-size: 0.9375rem;
+  }
+  .row-icon {
+    width: 17px;
+    height: 17px;
+  }
+  .action-btn {
+    padding: 0.45rem;
+  }
+  .action-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+}
 </style>

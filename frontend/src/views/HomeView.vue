@@ -1,13 +1,40 @@
 <template>
   <div class="workspace">
-    <!-- Konto-Menü oben rechts (ersetzt die frühere Kopfzeile) -->
-    <UserMenu />
+    <!-- Mobile-Topbar mit Hamburger (nur ≤760px) -->
+    <header class="mobile-topbar">
+      <button class="hamburger-btn" title="Menü" @click="mobileNavOpen = !mobileNavOpen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+      <span class="topbar-title">TwoNote</span>
+    </header>
 
     <div class="workspace-body">
+      <!-- Backdrop für die mobile Schublade -->
+      <div
+        v-if="isMobile && mobileNavOpen"
+        class="mobile-backdrop"
+        @click="mobileNavOpen = false"
+      ></div>
+
       <!-- Linke Leiste: Upload (oben) + Datei-Liste -->
-      <aside class="sidebar" :style="{ width: sidebarWidth + 'px' }">
+      <aside
+        v-show="isMobile || !sidebarCollapsed"
+        class="sidebar"
+        :class="{ 'mobile-open': mobileNavOpen }"
+        :style="{ width: sidebarWidth + 'px' }"
+      >
         <div class="sidebar-upload">
-          <FileUpload @uploaded="onFileUploaded" />
+          <button class="upload-toggle" @click="uploadCollapsed = !uploadCollapsed">
+            <span>Hochladen</span>
+            <svg class="chevron" :class="{ collapsed: uploadCollapsed }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          <FileUpload v-show="!uploadCollapsed" @uploaded="onFileUploaded" />
         </div>
 
         <div v-if="filesStore.error" class="error-banner">
@@ -38,6 +65,11 @@
               <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
             </svg>
           </button>
+          <button class="refresh-btn" @click="sidebarCollapsed = true" title="Leiste zuklappen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
         </div>
 
         <!-- Datei-Liste (scrollbar) -->
@@ -51,16 +83,45 @@
             @delete="handleDelete"
           />
         </div>
+
+        <!-- Footer: Home-Button (Viewer schließen) + Profil-Menü -->
+        <div class="sidebar-footer">
+          <button
+            class="home-btn"
+            :disabled="!activeFileId"
+            title="Dokument schließen"
+            @click="goHome"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+          </button>
+          <UserMenu />
+        </div>
       </aside>
 
       <!-- Resize-Handle für die Leiste -->
       <div
+        v-show="!sidebarCollapsed"
         class="sidebar-resize"
         :class="{ dragging: isResizing }"
         @pointerdown="startResize"
         @dblclick="resetSidebarWidth"
         title="Ziehen zum Anpassen, Doppelklick zum Zurücksetzen"
       ></div>
+
+      <!-- Aufklapp-Knopf wenn die Leiste zugeklappt ist -->
+      <button
+        v-show="sidebarCollapsed"
+        class="sidebar-expand"
+        title="Dateien einblenden"
+        @click="sidebarCollapsed = false"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
 
       <!-- Rechter Bereich: Dokument-Viewer -->
       <main class="viewer-area">
@@ -78,7 +139,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFilesStore } from '@/stores/files'
 import { type DriveFile } from '@/api'
@@ -86,10 +147,14 @@ import FileUpload from '@/components/FileUpload.vue'
 import FileSidebarList from '@/components/FileSidebarList.vue'
 import DocumentViewer from '@/components/DocumentViewer.vue'
 import UserMenu from '@/components/UserMenu.vue'
+import { useIsMobile } from '@/utils/useIsMobile'
 
 const route = useRoute()
 const router = useRouter()
 const filesStore = useFilesStore()
+
+const { isMobile } = useIsMobile()
+const mobileNavOpen = ref(false)
 
 const activeFileId = computed(() => (route.params.id as string) || '')
 
@@ -98,9 +163,22 @@ const SIDEBAR_DEFAULT = 320
 const SIDEBAR_MIN = 220
 const SIDEBAR_MAX = 560
 const SIDEBAR_STORAGE_KEY = 'twonote.fileSidebarWidth'
+const SIDEBAR_COLLAPSED_KEY = 'twonote.fileSidebarCollapsed'
 
 const sidebarWidth = ref(loadSidebarWidth())
 const isResizing = ref(false)
+const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1')
+
+watch(sidebarCollapsed, (v) => {
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, v ? '1' : '0')
+})
+
+const UPLOAD_COLLAPSED_KEY = 'twonote.uploadCollapsed'
+const uploadCollapsed = ref(localStorage.getItem(UPLOAD_COLLAPSED_KEY) === '1')
+
+watch(uploadCollapsed, (v) => {
+  localStorage.setItem(UPLOAD_COLLAPSED_KEY, v ? '1' : '0')
+})
 
 function loadSidebarWidth(): number {
   const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY)
@@ -148,6 +226,8 @@ function navigateIntoFolder(file: DriveFile) {
 function openFile(file: DriveFile) {
   filesStore.setActiveFile(file)
   router.push({ name: 'file', params: { id: file.id } })
+  // Auf dem Handy: Schublade schließen, damit der Viewer sichtbar wird.
+  mobileNavOpen.value = false
 }
 
 async function handleDelete(file: DriveFile) {
@@ -162,6 +242,11 @@ async function handleDelete(file: DriveFile) {
 function onFileUploaded() {
   filesStore.fetchFiles()
 }
+
+function goHome() {
+  router.push({ name: 'home' })
+  mobileNavOpen.value = false
+}
 </script>
 
 <style scoped>
@@ -172,11 +257,51 @@ function onFileUploaded() {
   background: var(--bg-primary);
 }
 
+/* ── Mobile-Topbar (nur ≤760px sichtbar) ────────────────────── */
+.mobile-topbar {
+  display: none;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.hamburger-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: none;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.hamburger-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.topbar-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mobile-backdrop {
+  display: none;
+}
+
 .workspace-body {
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 /* ── Linke Leiste ───────────────────────────────────────────── */
@@ -193,6 +318,37 @@ function onFileUploaded() {
   padding: 1rem;
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
+}
+
+.upload-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0 0 0.6rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: color 0.15s;
+}
+
+.upload-toggle:hover {
+  color: var(--text-primary);
+}
+
+.upload-toggle .chevron {
+  width: 15px;
+  height: 15px;
+  transition: transform 0.15s;
+}
+
+.upload-toggle .chevron.collapsed {
+  transform: rotate(-90deg);
 }
 
 .error-banner {
@@ -295,6 +451,79 @@ function onFileUploaded() {
   padding: 0.25rem 0.5rem 1rem;
 }
 
+/* ── Footer: Home + Profil ──────────────────────────────────── */
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid var(--border-default);
+}
+
+.home-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: none;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.home-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.home-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.home-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Profil-Menü ans rechte Ende schieben */
+.sidebar-footer :deep(.user-menu) {
+  margin-left: auto;
+}
+
+/* ── Aufklapp-Knopf (zugeklappte Leiste) ────────────────────── */
+.sidebar-expand {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 48px;
+  margin-top: 0.6rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.sidebar-expand svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-expand:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 /* ── Resize-Handle ──────────────────────────────────────────── */
 .sidebar-resize {
   width: 5px;
@@ -337,19 +566,52 @@ function onFileUploaded() {
   color: var(--text-faint);
 }
 
-/* ── Schmale Bildschirme: Leiste oben, Viewer darunter ──────── */
+/* ── Schmale Bildschirme: Datei-Liste als Schublade (Overlay) ── */
 @media (max-width: 760px) {
-  .workspace-body {
-    flex-direction: column;
+  .mobile-topbar {
+    display: flex;
   }
+
+  /* Sidebar wird zur fixierten Schublade, die von links einschiebt */
   .sidebar {
-    width: 100% !important;
-    max-height: 45vh;
-    border-right: none;
-    border-bottom: 1px solid var(--border-default);
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(85%, 320px) !important;
+    max-width: 320px;
+    border-right: 1px solid var(--border-default);
+    z-index: 70;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.45);
   }
-  .sidebar-resize {
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 65;
+  }
+
+  /* Desktop-Resize/Collapse-Bedienelemente auf Mobil ausblenden */
+  .sidebar-resize,
+  .sidebar-expand {
     display: none;
+  }
+
+  /* Den „Leiste zuklappen"-Chevron im sidebar-nav ausblenden (zweiter refresh-btn) */
+  .sidebar-nav .refresh-btn:last-child {
+    display: none;
+  }
+
+  .viewer-area {
+    width: 100%;
   }
 }
 </style>
