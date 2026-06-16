@@ -30,6 +30,7 @@ def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_columns()
     _ensure_indexes()
+    _ensure_filerecord_names()
 
 
 def _ensure_columns() -> None:
@@ -66,6 +67,32 @@ def _ensure_indexes() -> None:
             if name == "ix_annotation_file_id" and unique:
                 conn.execute(text("DROP INDEX ix_annotation_file_id"))
                 conn.execute(text("CREATE INDEX ix_annotation_file_id ON annotation (file_id)"))
+        conn.commit()
+
+
+def _ensure_filerecord_names() -> None:
+    """Bereinigt Datei-/Ordnernamen, die noch einen Pfad enthalten (idempotent).
+
+    Aus der früheren Drive-Datenbasis übernommene Dateien hatten teils den Pfad im
+    Namen (z. B. ``09_Vollmachten/04_Übung.pdf``). Hier auf den reinen Basisnamen
+    kürzen. Nach dem ersten Lauf gibt es keine Namen mehr mit Trenner → No-Op.
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='filerecord'")
+        ).first()
+        if not exists:
+            return
+        # char(92) = Backslash – über instr() ohne LIKE-Escaping suchen.
+        rows = conn.execute(
+            text("SELECT id, name FROM filerecord WHERE instr(name, '/') > 0 OR instr(name, char(92)) > 0")
+        ).fetchall()
+        for row_id, name in rows:
+            base = name.replace("\\", "/").rsplit("/", 1)[-1] or name
+            conn.execute(
+                text("UPDATE filerecord SET name = :n WHERE id = :id"),
+                {"n": base, "id": row_id},
+            )
         conn.commit()
 
 

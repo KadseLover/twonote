@@ -86,6 +86,9 @@ def upload_file(
     if folder_id is not None and not _is_folder(session, folder_id):
         raise RuntimeError("Zielordner existiert nicht.")
 
+    # Nur den Basisnamen speichern – nie einen Pfad (z. B. aus Ordner-Uploads).
+    filename = os.path.basename((filename or "").replace("\\", "/")) or "Datei"
+
     _ensure_dir()
     record = FileRecord(
         name=filename,

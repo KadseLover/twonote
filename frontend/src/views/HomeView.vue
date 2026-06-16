@@ -58,6 +58,13 @@
               </button>
             </template>
           </nav>
+          <button class="refresh-btn" @click="openNewFolder" title="Neuer Ordner">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              <line x1="12" y1="11" x2="12" y2="17"/>
+              <line x1="9" y1="14" x2="15" y2="14"/>
+            </svg>
+          </button>
           <button class="refresh-btn" @click="filesStore.fetchFiles()" :disabled="filesStore.loading" title="Aktualisieren">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: filesStore.loading }">
               <polyline points="23 4 23 10 17 10"/>
@@ -135,6 +142,16 @@
         </div>
       </main>
     </div>
+
+    <PromptDialog
+      :visible="showNewFolder"
+      title="Neuer Ordner"
+      message="Wie soll der Ordner heißen?"
+      placeholder="Ordnername"
+      confirm-text="Erstellen"
+      @submit="onNewFolderSubmit"
+      @cancel="showNewFolder = false"
+    />
   </div>
 </template>
 
@@ -147,6 +164,7 @@ import FileUpload from '@/components/FileUpload.vue'
 import FileSidebarList from '@/components/FileSidebarList.vue'
 import DocumentViewer from '@/components/DocumentViewer.vue'
 import UserMenu from '@/components/UserMenu.vue'
+import PromptDialog from '@/components/PromptDialog.vue'
 import { useIsMobile } from '@/utils/useIsMobile'
 
 const route = useRoute()
@@ -241,6 +259,21 @@ async function handleDelete(file: DriveFile) {
 
 function onFileUploaded() {
   filesStore.fetchFiles()
+}
+
+// ─── Neuer Ordner ─────────────────────────────────────────────────────────────
+const showNewFolder = ref(false)
+
+function openNewFolder() {
+  showNewFolder.value = true
+}
+
+async function onNewFolderSubmit(name: string) {
+  showNewFolder.value = false
+  const trimmed = name.trim()
+  if (!trimmed) return
+  const folder = await filesStore.createFolder(trimmed, filesStore.currentFolderId)
+  if (folder) await filesStore.fetchFiles()
 }
 
 function goHome() {
