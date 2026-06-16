@@ -27,6 +27,19 @@
           <svg v-if="isFolder(file)" class="row-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
           </svg>
+          <!-- PDF -->
+          <svg v-else-if="fileKind(file) === 'pdf'" class="row-icon file-icon-pdf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <text x="12" y="18.5" text-anchor="middle" fill="currentColor" stroke="none" font-family="Arial, Helvetica, sans-serif" font-size="6.2" font-weight="700">PDF</text>
+          </svg>
+          <!-- Word (.docx/.doc) -->
+          <svg v-else-if="fileKind(file) === 'word'" class="row-icon file-icon-word" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <text x="12" y="18.6" text-anchor="middle" fill="currentColor" stroke="none" font-family="Arial, Helvetica, sans-serif" font-size="7.5" font-weight="700">W</text>
+          </svg>
+          <!-- Sonstige -->
           <svg v-else class="row-icon file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
@@ -91,6 +104,22 @@ const sortedFiles = computed(() => {
 
 function isFolder(file: DriveFile): boolean {
   return file.mimeType === FOLDER_MIME
+}
+
+// Dateityp anhand der Endung bzw. des MIME-Types bestimmen (für das passende Icon).
+function fileKind(file: DriveFile): 'pdf' | 'word' | 'other' {
+  const name = file.name.toLowerCase()
+  const mime = file.mimeType || ''
+  if (name.endsWith('.pdf') || mime === 'application/pdf') return 'pdf'
+  if (
+    name.endsWith('.docx') ||
+    name.endsWith('.doc') ||
+    mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    mime === 'application/msword'
+  ) {
+    return 'word'
+  }
+  return 'other'
 }
 
 async function handleDownload(file: DriveFile) {
@@ -205,6 +234,8 @@ async function handleDownload(file: DriveFile) {
 
 .folder-icon { color: var(--text-muted); }
 .file-icon { color: var(--text-faint); }
+.file-icon-pdf { color: #e0392b; }   /* PDF – rot */
+.file-icon-word { color: #2b6cb0; }  /* Word – blau */
 
 .row-actions {
   display: flex;
