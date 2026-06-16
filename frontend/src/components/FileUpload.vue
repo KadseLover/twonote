@@ -1,4 +1,5 @@
 <template>
+  <div class="file-upload">
   <div
     class="upload-zone"
     :class="{ 'drag-over': isDragging, uploading: isUploading }"
@@ -56,6 +57,8 @@
 
     <!-- Fehler -->
     <div v-if="localError" class="upload-error">{{ localError }}</div>
+  </div>
+
   </div>
 </template>
 
@@ -134,6 +137,7 @@ async function uploadFiles(fileList: FileList) {
 
   let anySuccess = false
   for (const file of files) {
+    // Gleichnamige Datei → es entsteht immer ein neuer Eintrag (kein Überschreiben).
     const result = await filesStore.uploadFile(file)
     if (result) anySuccess = true
     else localError.value = filesStore.error ?? 'Upload fehlgeschlagen.'

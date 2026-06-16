@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="TwoNote API",
     description=(
-        "Backend für TwoNote – Dokumente in Google Drive verwalten, "
+        "Backend für TwoNote – Dokumente lokal verwalten, "
         "PDFs bearbeiten und mit Gemini AI zusammenfassen."
     ),
     version="1.0.0",

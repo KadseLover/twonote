@@ -85,6 +85,13 @@ export interface DriveFile {
   size?: string
 }
 
+export interface AnnotationVersion {
+  id: number
+  label: string
+  created_at: string
+  updated_at: string
+}
+
 export const filesApi = {
   list: (folderId?: string) =>
     api.get<{ files: DriveFile[] }>('/api/files', {
@@ -114,17 +121,29 @@ export const filesApi = {
   download: (fileId: string) =>
     api.get(`/api/files/${fileId}/download`, { responseType: 'blob' }),
 
-  update: (fileId: string, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return api.put<{ file: DriveFile; message: string }>(
-      `/api/files/${fileId}`,
-      form,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
-    )
-  },
-
   delete: (fileId: string) => api.delete(`/api/files/${fileId}`),
+
+  listAnnotationVersions: (fileId: string) =>
+    api.get<{ versions: AnnotationVersion[]; latest_id: number | null }>(
+      `/api/files/${fileId}/annotations`
+    ),
+
+  getAnnotationVersion: (fileId: string, versionId: number) =>
+    api.get<{ id: number; data: string; updated_at: string }>(
+      `/api/files/${fileId}/annotations/${versionId}`
+    ),
+
+  createAnnotationVersion: (fileId: string, data: string, label = '') =>
+    api.post<{ id: number; label: string; created_at: string; updated_at: string }>(
+      `/api/files/${fileId}/annotations`,
+      { data, label }
+    ),
+
+  updateAnnotationVersion: (fileId: string, versionId: number, data: string) =>
+    api.put<{ status: string }>(
+      `/api/files/${fileId}/annotations/${versionId}`,
+      { data }
+    ),
 
   summarize: (fileId: string) =>
     api.post<{ file_id: string; filename: string; summary: string }>(

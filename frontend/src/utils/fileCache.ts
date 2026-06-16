@@ -3,7 +3,7 @@
  *
  * Ziel: Nach dem ersten Laden wird der Datei-Blob lokal gespeichert, sodass das
  * erneute Öffnen ohne Netzwerk-Download auskommt. Invalidierung erfolgt über die
- * `modifiedTime` aus Google Drive — ändert sich die Datei, ist der Cache-Eintrag
+ * `modifiedTime` der Datei — ändert sich die Datei, ist der Cache-Eintrag
  * automatisch „stale" und wird neu geladen.
  *
  * Aufräumstrategie: LRU mit Gesamt-Größenlimit (MAX_CACHE_BYTES). Beim Überschreiten

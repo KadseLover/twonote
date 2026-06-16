@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { filesApi, type DriveFile } from '@/api'
 import { getCachedFile, putCachedFile, evictFile } from '@/utils/fileCache'
 
-const FOLDER_MIME = 'application/vnd.google-apps.folder'
+const FOLDER_MIME = 'application/vnd.twonote.folder'
 
 export const useFilesStore = defineStore('files', () => {
   // State
@@ -107,28 +107,6 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
-  /**
-   * Überschreibt den Inhalt einer Datei (z. B. PDF-Editor beim Speichern) und hält
-   * dabei sowohl die Datei-Liste als auch den lokalen Cache kohärent.
-   */
-  async function updateFileContent(fileId: string, file: File): Promise<DriveFile | null> {
-    const { data } = await filesApi.update(fileId, file)
-    const updated = data.file
-
-    // Datei-Liste aktualisieren (neue modifiedTime/size)
-    const idx = files.value.findIndex((f) => f.id === fileId)
-    if (idx !== -1) files.value[idx] = updated
-
-    // Cache mit neuem Inhalt + neuer modifiedTime aktualisieren
-    if (updated.modifiedTime) {
-      await putCachedFile(fileId, updated.modifiedTime, file)
-    } else {
-      await evictFile(fileId)
-    }
-
-    return updated
-  }
-
   async function deleteFile(fileId: string): Promise<boolean> {
     error.value = null
     try {
@@ -168,7 +146,6 @@ export const useFilesStore = defineStore('files', () => {
     uploadFile,
     createFolder,
     downloadFileBlob,
-    updateFileContent,
     deleteFile,
     setActiveFile,
     getFileById,

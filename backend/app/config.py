@@ -8,12 +8,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Google Drive (OAuth2)
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    google_refresh_token: str = ""
-    google_drive_folder_id: str = ""
-
     # Gemini
     gemini_api_key: str = ""
     # Tägliches Free-Tier-Limit (Requests/Tag) – nur zur Anzeige, anpassbar via .env
@@ -30,10 +24,6 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",")]
-
-    @property
-    def drive_oauth2_configured(self) -> bool:
-        return bool(self.google_client_id and self.google_client_secret and self.google_refresh_token)
 
 
 settings = Settings()

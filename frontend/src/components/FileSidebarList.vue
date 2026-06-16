@@ -67,7 +67,7 @@
 import { computed } from 'vue'
 import { filesApi, type DriveFile } from '@/api'
 
-const FOLDER_MIME = 'application/vnd.google-apps.folder'
+const FOLDER_MIME = 'application/vnd.twonote.folder'
 
 const props = defineProps<{
   files: DriveFile[]

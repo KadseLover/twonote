@@ -169,8 +169,8 @@ const isWord = computed(() => {
 })
 
 const saveStatusClass = computed(() => ({
-  'status-saving': saveStatus.value === 'Speichern…',
-  'status-saved': saveStatus.value === 'Gespeichert',
+  'status-saving': saveStatus.value === 'Speichern…' || saveStatus.value === 'Export…',
+  'status-saved': saveStatus.value === 'Gespeichert' || saveStatus.value === 'Exportiert',
   'status-error': saveStatus.value.startsWith('Fehler'),
 }))
 
@@ -191,7 +191,7 @@ async function loadFile() {
 
 function onSaveStatus(status: string) {
   saveStatus.value = status
-  if (status === 'Gespeichert' || status.startsWith('Fehler')) {
+  if (status === 'Gespeichert' || status === 'Exportiert' || status.startsWith('Fehler')) {
     setTimeout(() => {
       saveStatus.value = ''
     }, 3000)

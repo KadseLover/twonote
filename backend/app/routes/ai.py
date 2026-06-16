@@ -5,7 +5,7 @@ from app.database import get_session
 from app.models.user import User
 from app.models.usage import AiUsage  # noqa: F401  (Tabelle registrieren)
 from app.models.summary import Summary  # noqa: F401  (Tabelle registrieren)
-from app.services import drive as drive_service
+from app.services import storage as storage_service
 from app.services import gemini as gemini_service
 from app.services import usage as usage_service
 from app.services import summaries as summaries_service
@@ -56,24 +56,24 @@ def summarize_document(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Lädt eine Datei aus Drive, extrahiert den Text und erstellt
+    Lädt eine Datei lokal, extrahiert den Text und erstellt
     eine strukturierte Zusammenfassung mit Google Gemini AI.
 
     Unterstützt: PDF, Word (.docx)
     Gibt eine Markdown-formatierte Zusammenfassung zurück.
     """
-    # Datei aus Drive laden
+    # Datei lokal laden
     try:
-        content, filename, mime_type = drive_service.download_file(file_id)
-    except RuntimeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Google Drive Fehler: {e}",
-        )
-    except Exception:
+        content, filename, mime_type = storage_service.download_file(session, file_id)
+    except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Datei '{file_id}' nicht gefunden",
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
         )
 
     # Zusammenfassung erstellen

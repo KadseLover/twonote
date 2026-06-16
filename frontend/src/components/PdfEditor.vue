@@ -55,7 +55,19 @@
         <button class="tool-btn danger" title="Alle Annotationen löschen" @click="clearAll">
           Alle löschen
         </button>
-        <button class="tool-btn primary" title="Als PDF speichern" @click="savePdf" :disabled="saving">
+        <button class="tool-btn" title="Mit Notizen als PDF herunterladen" @click="exportPdf" :disabled="exporting">
+          <span v-if="exporting">Export…</span>
+          <span v-else>Export</span>
+        </button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group">
+        <button class="tool-btn" title="Versionen ansehen" @click="showVersions = true">
+          Versionen
+        </button>
+        <button class="tool-btn primary" title="Notizen speichern (bleiben bearbeitbar)" @click="save" :disabled="saving || !dirty">
           <span v-if="saving">Speichern…</span>
           <span v-else>Speichern</span>
         </button>
@@ -86,6 +98,32 @@
         <canvas ref="fabricCanvasRef" class="fabric-overlay"></canvas>
       </div>
     </div>
+
+    <ConflictDialog
+      :visible="!!conflict"
+      :filename="conflict?.filename"
+      title="Speichern"
+      message="Es gibt bereits gespeicherte Stände. Wie möchtest du speichern?"
+      @choose="onConflictChoose"
+    />
+
+    <VersionHistory
+      v-if="showVersions"
+      :file-id="fileId"
+      :current-version-id="loadedVersionId"
+      @select="openVersion"
+      @close="showVersions = false"
+    />
+
+    <PromptDialog
+      :visible="namePrompt"
+      title="Version benennen"
+      message="Vergib einen Namen für diese Version (optional)."
+      placeholder="z. B. Entwurf 2"
+      confirm-text="Speichern"
+      @submit="onNameSubmit"
+      @cancel="onNameCancel"
+    />
   </div>
 </template>
 
@@ -96,6 +134,11 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import * as fabric from 'fabric'
 import { PDFDocument } from 'pdf-lib'
 import { useFilesStore } from '@/stores/files'
+import { filesApi } from '@/api'
+import ConflictDialog from '@/components/ConflictDialog.vue'
+import type { ConflictChoice } from '@/components/ConflictDialog.vue'
+import VersionHistory from '@/components/VersionHistory.vue'
+import PromptDialog from '@/components/PromptDialog.vue'
 
 // Vite liefert über den `?url`-Import die korrekte, gebundelte Worker-URL.
 // (Ein `new URL('pdfjs-dist/...', import.meta.url)` würde Vite NICHT auflösen.)
@@ -104,6 +147,36 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 const PAGE_SCALE = 1.5
 const PAGE_GAP = 24 // logischer Abstand zwischen den Seiten (px bei Zoom 1)
 const SANS_FONT = 'Arial, Helvetica, sans-serif'
+
+const PLACEHOLDER_TEXT = 'Text eingeben…'
+const PLACEHOLDER_FILL = '#9ca3af' // gedämpftes Grau – nur Hinweis, kein echter Inhalt
+
+// Zeichnet bei leerem IText einen gedämpften Placeholder (statt echtem Vorgabetext, den
+// man erst löschen müsste). Wird per Instanz angehängt – das Objekt bleibt ein normales
+// `i-text` (kein neuer Serialisierungstyp), sodass gespeicherte Stände immer ladbar sind.
+// Leere Felder werden ohnehin beim Verlassen entfernt, der Placeholder wird nie persistiert.
+function attachPlaceholder(obj: fabric.IText, placeholder: string) {
+  const baseRender = (fabric.IText.prototype as any)._render
+  ;(obj as any)._render = function (ctx: CanvasRenderingContext2D) {
+    baseRender.call(this, ctx)
+    if (this.text === '') {
+      ctx.save()
+      ctx.fillStyle = PLACEHOLDER_FILL
+      ctx.font = `${this.fontStyle} ${this.fontWeight} ${this.fontSize}px ${this.fontFamily}`
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'top'
+      // Lokale Koordinaten sind zentriert → Textstart oben-links.
+      ctx.fillText(placeholder, -this.width / 2, -this.height / 2)
+      ctx.restore()
+    }
+  }
+}
+
+// Sichere Obergrenzen für die Canvas-Backing-Store-Größe. Browser brechen die
+// Allokation darüber ab ("Canvas is already in error state"): Firefox bei
+// 32767px/Seite, Chrome bei ~16384² px Fläche. 16384 ist für beide sicher.
+const MAX_CANVAS_DIM = 16384
+const MAX_CANVAS_AREA = MAX_CANVAS_DIM * MAX_CANVAS_DIM
 
 // ─── Props & Emits ────────────────────────────────────────────────────────────
 const props = defineProps<{
@@ -129,6 +202,56 @@ const activeTool = ref<'select' | 'text' | 'highlight'>('select')
 const textColor = ref('#000000')       // Schrift: standardmäßig schwarz
 const highlightColor = ref('#ffeb3b')  // Markierung: standardmäßig gelb
 const saving = ref(false)
+const exporting = ref(false)
+
+// Versionen / Notiz-Stände
+const showVersions = ref(false)
+const loadedVersionId = ref<number | null>(null)  // aktuell geladener Stand
+const dirty = ref(false)                           // seit Laden/Speichern geändert?
+
+// Speicher-Dialog (Überschreiben / Eigene Version / Abbrechen)
+const conflict = ref<{ filename: string } | null>(null)
+let conflictResolver: ((choice: ConflictChoice) => void) | null = null
+
+function askConflict(filename: string): Promise<ConflictChoice> {
+  conflict.value = { filename }
+  return new Promise((resolve) => {
+    conflictResolver = resolve
+  })
+}
+
+function onConflictChoose(choice: ConflictChoice) {
+  conflict.value = null
+  conflictResolver?.(choice)
+  conflictResolver = null
+}
+
+// Namens-Dialog für eine neue Version
+const namePrompt = ref(false)
+let nameResolver: ((value: string | null) => void) | null = null
+
+function askVersionName(): Promise<string | null> {
+  namePrompt.value = true
+  return new Promise((resolve) => {
+    nameResolver = resolve
+  })
+}
+
+function onNameSubmit(value: string) {
+  namePrompt.value = false
+  nameResolver?.(value)
+  nameResolver = null
+}
+
+function onNameCancel() {
+  namePrompt.value = false
+  nameResolver?.(null)
+  nameResolver = null
+}
+
+// Fabric-Objekt-Eigenschaften, die zusätzlich zum Standard serialisiert werden
+// müssen, damit die Ebene exakt so wiederhergestellt wird (z. B. Textmarker).
+const SERIALIZE_PROPS = ['globalCompositeOperation', 'perPixelTargetFind']
 
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 2.5
@@ -171,6 +294,26 @@ watch(zoom, () => {
   rerenderTimer = setTimeout(rerenderAllPages, 150)
 })
 
+// Begrenzt die Backing-Store-Auflösung des Fabric-Overlays. Das Overlay spannt
+// sich über ALLE Seiten (docHeight = Summe aller Seitenhöhen); bei langen
+// Dokumenten würde docHeight × zoom × devicePixelRatio das Canvas-Limit des
+// Browsers sprengen und die Allokation fehlschlagen lassen. Wir senken dafür
+// nur die Pixeldichte der Annotationsebene – die PDF-Seiten selbst bleiben als
+// eigene Canvases scharf. Klick-/Hit-Testing bleibt korrekt, weil Fabric in
+// getPointer durch denselben Faktor teilt und wieder multipliziert.
+function safeRetinaScaling(): number {
+  const dpr = window.devicePixelRatio || 1
+  const w = Math.max(1, docWidth.value * zoom.value)
+  const h = Math.max(1, docHeight.value * zoom.value)
+  const limit = Math.min(
+    dpr,
+    MAX_CANVAS_DIM / w,
+    MAX_CANVAS_DIM / h,
+    Math.sqrt(MAX_CANVAS_AREA / (w * h)),
+  )
+  return Math.max(0.05, limit)
+}
+
 // Fabric-Overlay folgt dem Zoom über die interne Skalierung (scharfe Vektoren),
 // nicht über CSS-transform.
 function applyFabricZoom() {
@@ -209,6 +352,7 @@ onMounted(async () => {
   await nextTick()
 
   initFabric()
+  await loadAnnotations()
 
   for (let i = 1; i <= pdfDoc.numPages; i++) {
     await renderPage(i)
@@ -217,6 +361,49 @@ onMounted(async () => {
   updateFabricMode()
   window.addEventListener('keydown', onKeyDown)
 })
+
+// Neuesten Notiz-Stand laden und als bearbeitbare Objekte herstellen.
+async function loadAnnotations() {
+  if (!fabricCanvas) return
+  try {
+    const { data } = await filesApi.listAnnotationVersions(props.fileId)
+    if (data.latest_id == null) {
+      dirty.value = false
+      return
+    }
+    await loadVersionData(data.latest_id)
+  } catch (e) {
+    console.error('Notiz-Stände konnten nicht geladen werden:', e)
+  }
+}
+
+// Einen bestimmten Stand in den Editor laden (ersetzt die aktuelle Ebene).
+async function loadVersionData(versionId: number) {
+  if (!fabricCanvas) return
+  const { data } = await filesApi.getAnnotationVersion(props.fileId, versionId)
+  await fabricCanvas.loadFromJSON(JSON.parse(data.data))
+  loadedVersionId.value = versionId
+  applyFabricZoom()
+  updateFabricMode()
+  // Das Laden löst object:added-Events aus → erst danach als „sauber" markieren.
+  dirty.value = false
+}
+
+// Aus dem Versionen-Dialog gewählten Stand öffnen.
+async function openVersion(versionId: number) {
+  showVersions.value = false
+  if (versionId === loadedVersionId.value) return
+  if (!fabricCanvas) return
+  if (dirty.value && !confirm('Ungespeicherte Änderungen verwerfen und die gewählte Version laden?')) {
+    return
+  }
+  fabricCanvas.clear()
+  try {
+    await loadVersionData(versionId)
+  } catch (e) {
+    console.error('Version konnte nicht geladen werden:', e)
+  }
+}
 
 onBeforeUnmount(() => {
   clearTimeout(rerenderTimer)
@@ -281,18 +468,40 @@ function initFabric() {
   const el = fabricCanvasRef.value
   if (!el) return
 
+  // Ohne width/height konstruieren: der Konstruktor würde den Backing-Store
+  // sonst sofort (vor dem getRetinaScaling-Override) ungebremst allokieren.
   const canvas = new fabric.Canvas(el, {
-    width: docWidth.value,
-    height: docHeight.value,
     selection: true,
     preserveObjectStacking: true,
     enableRetinaScaling: true,
   })
+  // Backing-Store-Auflösung deckeln, bevor Dimensionen gesetzt werden.
+  canvas.getRetinaScaling = safeRetinaScaling
+
+  // Zustand beim Drücken festhalten – bevor Fabric das Editieren beendet.
+  let wasEditingOnPress = false
+  canvas.on('mouse:down:before', () => {
+    const active = canvas.getActiveObject() as fabric.IText | undefined
+    wasEditingOnPress = !!active && (active as any).isEditing === true
+  })
 
   canvas.on('mouse:down', (opt) => {
-    if (activeTool.value === 'text') {
-      const ptr = canvas.getScenePoint(opt.e)
-      addTextbox(ptr.x, ptr.y)
+    if (activeTool.value !== 'text') return
+    // Klick, der ein Textfeld verlässt: nur Editiermodus beenden, kein neues Feld anlegen.
+    if (wasEditingOnPress) return
+    // Neues Feld nur auf leerer Fläche anlegen (nicht auf bestehende Objekte).
+    if (opt.target) return
+    const ptr = canvas.getScenePoint(opt.e)
+    addText(ptr.x, ptr.y)
+  })
+
+  // Leer verlassene Textfelder (nur Placeholder, nichts getippt) wieder entfernen –
+  // so wird kein leeres Objekt gespeichert oder bleibt unsichtbar liegen.
+  canvas.on('text:editing:exited', (opt) => {
+    const obj = (opt as unknown as { target?: fabric.IText }).target
+    if (obj && !obj.text.trim()) {
+      canvas.remove(obj)
+      canvas.requestRenderAll()
     }
   })
 
@@ -308,6 +517,14 @@ function initFabric() {
     })
     canvas.requestRenderAll()
   })
+
+  // Änderungen markieren (aktiviert den Speichern-Button + löst den Dialog aus).
+  const markDirty = () => { dirty.value = true }
+  canvas.on('object:added', markDirty)
+  canvas.on('object:modified', markDirty)
+  canvas.on('object:removed', markDirty)
+  canvas.on('path:created', markDirty)
+  canvas.on('text:changed', markDirty)
 
   fabricCanvas = canvas
   applyFabricZoom()
@@ -348,13 +565,13 @@ function setTool(tool: typeof activeTool.value) {
   updateFabricMode()
 }
 
-function addTextbox(x: number, y: number) {
+function addText(x: number, y: number) {
   const canvas = fabricCanvas
   if (!canvas) return
-  const textbox = new fabric.Textbox('Text eingeben', {
+  // Leer starten → sofort tippen ohne Vorgabetext zu löschen. Breite wächst mit dem Inhalt.
+  const text = new fabric.IText('', {
     left: x,
     top: y,
-    width: 180,
     fontSize: 16,
     fontFamily: SANS_FONT,
     fill: textColor.value,
@@ -365,11 +582,12 @@ function addTextbox(x: number, y: number) {
     evented: true,
     editable: true,
   })
-  canvas.add(textbox)
-  canvas.setActiveObject(textbox)
-  textbox.enterEditing()
+  attachPlaceholder(text, PLACEHOLDER_TEXT)
+  canvas.add(text)
+  canvas.setActiveObject(text)
+  text.enterEditing()
   canvas.requestRenderAll()
-  setTool('select')
+  // Im Text-Modus bleiben – kein automatischer Wechsel zu „Auswählen".
 }
 
 function deleteSelected() {
@@ -389,14 +607,60 @@ function clearAll() {
   fabricCanvas.requestRenderAll()
 }
 
-// ─── PDF speichern ────────────────────────────────────────────────────────────
-// Eine durchgehende Canvas → je Seite die passende Region zuschneiden und
-// einbetten. So landen auch über Seitengrenzen gezogene Objekte korrekt auf
-// beiden Seiten.
-async function savePdf() {
-  if (!pdfDoc || !fabricCanvas) return
+// ─── Notizen speichern (bearbeitbare Ebene) ───────────────────────────────────
+// Die Annotationen werden als fabric-JSON in der DB abgelegt – das Original-PDF
+// bleibt unangetastet, daher bleiben Texte/Markierungen dauerhaft editierbar.
+async function save() {
+  if (!fabricCanvas || !dirty.value) return
+
+  // Bei vorhandenem Stand: überschreiben oder als eigene Version ablegen?
+  let mode: 'create' | 'overwrite' = 'create'
+  if (loadedVersionId.value !== null) {
+    const filename = filesStore.getFileById(props.fileId)?.name ?? 'Dokument'
+    const choice = await askConflict(filename)
+    if (choice === 'cancel') return
+    mode = choice === 'version' ? 'create' : 'overwrite'
+  }
+
+  // Beim Anlegen einer neuen Version einen Namen abfragen (optional).
+  let label = ''
+  if (mode === 'create') {
+    const name = await askVersionName()
+    if (name === null) return // abgebrochen
+    label = name.trim()
+  }
+
   saving.value = true
   emit('save-status', 'Speichern…')
+  try {
+    const json = JSON.stringify(fabricCanvas.toObject(SERIALIZE_PROPS))
+    if (mode === 'overwrite' && loadedVersionId.value !== null) {
+      await filesApi.updateAnnotationVersion(props.fileId, loadedVersionId.value, json)
+    } else {
+      const { data } = await filesApi.createAnnotationVersion(props.fileId, json, label)
+      loadedVersionId.value = data.id
+    }
+    dirty.value = false
+    emit('save-status', 'Gespeichert')
+  } catch (e: any) {
+    console.error('Speichern fehlgeschlagen:', e)
+    emit('save-status', 'Fehler beim Speichern')
+    // dirty bleibt true → Änderungen bleiben im Canvas erhalten und können erneut
+    // gespeichert werden. Sichtbarer Hinweis, damit der Fehler nicht unbemerkt bleibt.
+    const detail = e?.response?.data?.detail
+    alert(`Speichern fehlgeschlagen${detail ? `: ${detail}` : '.'}\nDeine Änderungen sind noch da – bitte erneut versuchen.`)
+  } finally {
+    saving.value = false
+  }
+}
+
+// ─── Als PDF exportieren (abgeflacht, mit Notizen) ─────────────────────────────
+// Eine durchgehende Canvas → je Seite die passende Region zuschneiden und in eine
+// Kopie des PDFs einbetten. Das Ergebnis wird heruntergeladen (Original bleibt).
+async function exportPdf() {
+  if (!pdfDoc || !fabricCanvas) return
+  exporting.value = true
+  emit('save-status', 'Export…')
 
   const canvas = fabricCanvas
   const prevZoom = canvas.getZoom()
@@ -435,14 +699,22 @@ async function savePdf() {
 
     const pdfBytes = await pdfLibDoc.save()
     const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' })
-    const file = new File([blob], 'annotated.pdf', { type: 'application/pdf' })
 
-    await filesStore.updateFileContent(props.fileId, file)
+    // Im Browser herunterladen.
+    const baseName = (filesStore.getFileById(props.fileId)?.name ?? 'dokument').replace(/\.pdf$/i, '')
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${baseName} (Notizen).pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
 
-    emit('save-status', 'Gespeichert')
+    emit('save-status', 'Exportiert')
   } catch (e: any) {
-    console.error('Speichern fehlgeschlagen:', e)
-    emit('save-status', 'Fehler beim Speichern')
+    console.error('Export fehlgeschlagen:', e)
+    emit('save-status', 'Fehler beim Export')
   } finally {
     // Anzeige-Zoom wiederherstellen.
     canvas.setZoom(prevZoom)
@@ -451,7 +723,7 @@ async function savePdf() {
       height: docHeight.value * prevZoom,
     })
     canvas.requestRenderAll()
-    saving.value = false
+    exporting.value = false
   }
 }
 
