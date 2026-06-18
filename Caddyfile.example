@@ -1,0 +1,19 @@
+# Beispiel-Caddyfile – auf dem Server zu ./Caddyfile kopieren und Domains anpassen.
+# Caddy holt automatisch Let's-Encrypt-Zertifikate und unterstützt WebSockets
+# (nötig für das OnlyOffice-Co-Editing) ohne Zusatzkonfiguration.
+#
+# Voraussetzungen:
+#   - Beide (Sub-)Domains zeigen per DNS auf diesen Server.
+#   - Ports 80 und 443 sind von außen erreichbar (für ACME + Zugriff).
+
+# Frontend (Vue-SPA + /api-Proxy zum Backend)
+twonote.example.com {
+    reverse_proxy frontend:80
+}
+
+# OnlyOffice Document Server.
+# Diese Domain muss exakt ONLYOFFICE_PUBLIC_URL in der .env entsprechen
+# (also z.B. https://office.example.com).
+office.example.com {
+    reverse_proxy documentserver:80
+}

@@ -20,6 +20,10 @@ frontend/dist/
 # Docker
 *.log
 
+# Reverse Proxy: echte Caddyfile bleibt server-lokal (Domains/Setup-spezifisch).
+# Vorlage liegt als Caddyfile.example im Repo.
+Caddyfile
+
 # IDE
 .vscode/
 .idea/

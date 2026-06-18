@@ -34,8 +34,27 @@ services:
       - onlyoffice_cache:/var/lib/onlyoffice/documentserver/App_Data/cache/files
     restart: unless-stopped
 
+  # Reverse Proxy: TLS-Terminierung + Routing nach Hostname.
+  # twonote.<domain> → frontend, office.<domain> → documentserver.
+  # Die echte Caddyfile liegt server-lokal (siehe Caddyfile.example).
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - documentserver
+    restart: unless-stopped
+
 volumes:
   backend_data:
   onlyoffice_data:
   onlyoffice_log:
   onlyoffice_cache:
+  caddy_data:
+  caddy_config:

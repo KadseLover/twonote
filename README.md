@@ -70,6 +70,22 @@ cp .env.example .env
 
 > **Hinweis:** `ONLYOFFICE_JWT_SECRET` muss exakt mit dem `JWT_SECRET` des `documentserver`-Containers übereinstimmen (in `docker-compose.yml` bereits aus derselben Variable gespeist). Hinter einem Tunnel/HTTPS muss `ONLYOFFICE_PUBLIC_URL` ebenfalls per HTTPS erreichbar sein (eigene Subdomain), sonst blockiert der Browser den Editor (Mixed Content).
 
+### 1b. Reverse Proxy (Produktion mit eigener Domain)
+
+`docker-compose.yml` enthält einen **Caddy**-Service, der TLS terminiert und nach Hostname
+routet (Frontend bzw. Document Server). Die echte `Caddyfile` ist **server-lokal**
+(in `.gitignore`, wird nie überschrieben) – Vorlage kopieren und Domains anpassen:
+
+```bash
+cp Caddyfile.example Caddyfile
+# twonote.example.com / office.example.com durch deine (Sub-)Domains ersetzen
+```
+
+- Beide (Sub-)Domains müssen per DNS auf den Server zeigen (z.B. CNAME der Office-Subdomain
+  auf den Haupt-Hostnamen, falls Dynamic DNS).
+- `office.<domain>` muss derselbe Wert wie `ONLYOFFICE_PUBLIC_URL` sein.
+- Caddy holt Let's-Encrypt-Zertifikate automatisch und unterstützt die WebSockets fürs Co-Editing.
+
 ### 2. Starten
 
 ```bash
