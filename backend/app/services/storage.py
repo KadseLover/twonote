@@ -6,6 +6,7 @@ Ordner sind reine DB-Einträge ohne Bytes.
 """
 
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -14,6 +15,30 @@ from app.models.file import FileRecord
 
 # MIME-Type, an dem das Frontend Ordner erkennt.
 FOLDER_MIME = "application/vnd.twonote.folder"
+
+# Dateiendung → (OnlyOffice documentType, fileType, editierbar?).
+# Legacy-Binärformate (.doc/.xls/.ppt) lassen sich nicht direkt co-editieren → nur Ansicht.
+_EDITOR_MAP: dict[str, tuple[str, bool]] = {
+    "pdf": ("pdf", True),
+    "docx": ("word", True),
+    "doc": ("word", False),
+    "xlsx": ("cell", True),
+    "xls": ("cell", False),
+    "pptx": ("slide", True),
+    "ppt": ("slide", False),
+}
+
+
+def editor_meta(filename: str) -> tuple[str, str, bool]:
+    """Bestimmt (documentType, fileType, editierbar) für den OnlyOffice-Editor.
+
+    ``fileType`` ist die reine Endung (z. B. ``docx``); ``documentType`` die
+    OnlyOffice-Kategorie (``word``/``cell``/``slide``/``pdf``). Unbekannte
+    Endungen werden als nicht-editierbares Word-Dokument behandelt.
+    """
+    ext = os.path.splitext(filename or "")[1].lstrip(".").lower()
+    document_type, editable = _EDITOR_MAP.get(ext, ("word", False))
+    return document_type, ext, editable
 
 # Basisverzeichnis für die rohen Datei-Bytes (relativ zum Arbeitsverzeichnis des
 # Backends, identisch zur SQLite-DB unter data/).
@@ -120,6 +145,26 @@ def download_file(session: Session, file_id: str) -> tuple[bytes, str, str]:
     with open(path, "rb") as f:
         content = f.read()
     return content, record.name, record.mime_type or "application/octet-stream"
+
+
+def save_content(session: Session, file_id: str, content: bytes) -> None:
+    """Überschreibt die Bytes einer bestehenden Datei (für OnlyOffice-Callbacks).
+
+    Aktualisiert Größe und ``modified_at``; der ``modified_at``-Wert fließt in den
+    OnlyOffice-document.key ein, sodass beim nächsten Öffnen der neue Stand geladen wird.
+    """
+    record = session.get(FileRecord, file_id)
+    if record is None or record.is_folder:
+        raise FileNotFoundError(f"Datei '{file_id}' nicht gefunden")
+
+    _ensure_dir()
+    with open(_blob_path(file_id), "wb") as f:
+        f.write(content)
+
+    record.size = len(content)
+    record.modified_at = datetime.now(timezone.utc)
+    session.add(record)
+    session.commit()
 
 
 def delete_file(session: Session, file_id: str) -> None:

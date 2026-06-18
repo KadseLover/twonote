@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import create_db_and_tables
-from app.routes import auth, files, ai
+from app.routes import auth, files, ai, onlyoffice
 
 
 @asynccontextmanager
@@ -50,6 +50,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router)
 app.include_router(files.router)
 app.include_router(ai.router)
+app.include_router(onlyoffice.router)
 
 
 @app.get("/", tags=["root"])

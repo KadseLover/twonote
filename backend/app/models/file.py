@@ -13,8 +13,8 @@ class FileRecord(SQLModel, table=True):
 
     Die ``id`` wird als opaker String behandelt: neue Dateien/Ordner bekommen
     eine uuid4-Hex-ID, aus Google Drive migrierte Einträge behalten ihre
-    ursprüngliche Drive-ID – so bleiben bestehende ``Annotation.file_id`` und
-    ``Summary.file_id`` ohne Umschlüsselung gültig.
+    ursprüngliche Drive-ID – so bleibt bestehende ``Summary.file_id`` ohne
+    Umschlüsselung gültig.
     """
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True)

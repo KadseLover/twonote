@@ -13,10 +13,6 @@
     "vue-router": "^4.5.0",
     "pinia": "^2.3.0",
     "axios": "^1.7.9",
-    "pdfjs-dist": "^4.9.155",
-    "pdf-lib": "^1.17.1",
-    "fabric": "^6.5.3",
-    "mammoth": "^1.8.0",
     "marked": "^15.0.4"
   },
   "devDependencies": {

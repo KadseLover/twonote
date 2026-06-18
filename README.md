@@ -5,6 +5,7 @@ Eine persönliche Lern-Webapp zum Verwalten, Bearbeiten und Zusammenfassen von D
 **Tech-Stack:**
 - **Frontend:** Vue 3 + Vite + Pinia (ausgeliefert über Nginx)
 - **Backend:** Python FastAPI
+- **Bearbeitung:** OnlyOffice Document Server (Echtzeit-Co-Editing)
 - **Speicher:** Lokales Dateisystem auf dem Server (Docker-Volume)
 - **KI:** Google Gemini API (kostenlose Tier)
 
@@ -12,8 +13,8 @@ Eine persönliche Lern-Webapp zum Verwalten, Bearbeiten und Zusammenfassen von D
 
 ## Features
 
-- 📁 Dokumente (PDF, Word) hochladen und lokal auf dem Server verwalten
-- ✏️ PDFs im Browser bearbeiten (Text schreiben, Markierungen, Checkboxen)
+- 📁 Dokumente (PDF, Word, Excel, PowerPoint) hochladen und lokal auf dem Server verwalten
+- ✏️ Dateien direkt im Browser mit **OnlyOffice** bearbeiten – inkl. **Echtzeit-Co-Editing** (mehrere Nutzer gleichzeitig); gespeichert wird automatisch zurück in dieselbe Datei
 - 🤖 Dokumente mit Gemini AI zusammenfassen (auf Deutsch)
 - 🔐 Mehrere Nutzer mit eigenem Login (JWT), gemeinsamer Dateibestand
 
@@ -23,15 +24,18 @@ Eine persönliche Lern-Webapp zum Verwalten, Bearbeiten und Zusammenfassen von D
 
 ```
 Browser ──> Nginx (Frontend, :8080) ──> FastAPI (Backend, :8000)
-                                           ├── SQLite           (User-Accounts, JWT, Datei-Metadaten)
-                                           ├── data/files/      (lokaler Dateispeicher)
-                                           └── Gemini API        (Zusammenfassungen)
+   │                                       ├── SQLite           (User-Accounts, JWT, Datei-Metadaten)
+   │                                       ├── data/files/      (lokaler Dateispeicher)
+   │                                       └── Gemini API        (Zusammenfassungen)
+   │                                              ▲
+   └──> OnlyOffice Document Server (:8082) ───────┘  (server-zu-server: Datei laden + speichern)
 ```
 
 - Die **Vue-SPA** wird von **Nginx** ausgeliefert; Nginx leitet alle `/api/*`-Anfragen an das Backend weiter (Upload-Limit 100 MB).
-- Das **FastAPI-Backend** hat drei Bereiche: `auth` (Login/Registrierung), `files` (Datei-CRUD lokal) und `ai` (Gemini-Zusammenfassung).
+- Das **FastAPI-Backend** hat vier Bereiche: `auth` (Login/Registrierung), `files` (Datei-CRUD lokal), `ai` (Gemini-Zusammenfassung) und `onlyoffice` (Editor-Config, Download & Speicher-Callback).
 - **Nutzer-Accounts** und **Datei-Metadaten** (Ordnerstruktur, Namen, Größen) liegen in einer **SQLite**-Datenbank (Passwörter via bcrypt). Die Authentifizierung läuft über **JWT** (HS256), das im Browser im `localStorage` gehalten und per Axios-Interceptor an jede Anfrage gehängt wird.
 - **Dokumente** liegen als Dateien unter `data/files/` auf dem Server (Docker-Volume `backend_data:/app/data`) und werden von allen Nutzern geteilt.
+- **Bearbeiten:** Der Browser lädt den OnlyOffice-Editor vom **Document Server** und öffnet darin die Datei. Der Document Server holt die Originaldatei server-zu-server vom Backend (`document.url`) und meldet Speicherstände an den Backend-`callbackUrl` zurück – beide URLs sind per JWT signiert (`ONLYOFFICE_JWT_SECRET`). Mehrere Nutzer am selben Dokument editieren dank gemeinsamem `document.key` in Echtzeit gemeinsam.
 
 ---
 
@@ -39,6 +43,7 @@ Browser ──> Nginx (Frontend, :8080) ──> FastAPI (Backend, :8000)
 
 1. **Docker + Docker Compose** installiert
 2. **Gemini API Key** von [aistudio.google.com](https://aistudio.google.com/apikey)
+3. **Genügend RAM** für den OnlyOffice Document Server (Richtwert ≥ 2 GB zusätzlich; er bündelt PostgreSQL/RabbitMQ/Redis)
 
 ---
 
@@ -59,6 +64,11 @@ cp .env.example .env
 | `JWT_SECRET_KEY` | Zufälliger Schlüssel (`openssl rand -hex 32`) |
 | `JWT_EXPIRE_MINUTES` | Gültigkeit des JWT in Minuten (Standard: `1440`) |
 | `CORS_ORIGINS` | Erlaubte Frontend-Origins, kommagetrennt (z.B. `http://localhost:8080`) |
+| `ONLYOFFICE_JWT_SECRET` | Geteiltes Geheimnis Backend ↔ Document Server (`openssl rand -hex 32`) |
+| `ONLYOFFICE_PUBLIC_URL` | Vom Browser erreichbare URL des Document Servers (lokal `http://localhost:8082`, prod z.B. `https://docs.deine-domain.de`) |
+| `BACKEND_INTERNAL_URL` | Backend-URL aus Sicht des Document Servers (Docker-intern, Standard `http://backend:8000`) |
+
+> **Hinweis:** `ONLYOFFICE_JWT_SECRET` muss exakt mit dem `JWT_SECRET` des `documentserver`-Containers übereinstimmen (in `docker-compose.yml` bereits aus derselben Variable gespeist). Hinter einem Tunnel/HTTPS muss `ONLYOFFICE_PUBLIC_URL` ebenfalls per HTTPS erreichbar sein (eigene Subdomain), sonst blockiert der Browser den Editor (Mixed Content).
 
 ### 2. Starten
 
@@ -69,6 +79,7 @@ docker-compose up --build
 - Frontend: http://localhost:8080
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
+- OnlyOffice Document Server: http://localhost:8082 (Healthcheck: `http://localhost:8082/healthcheck` → `true`)
 
 ### 3. Ersten Nutzer anlegen
 
@@ -102,7 +113,7 @@ python migrate_drive_to_local.py
 
 Das Skript lädt den kompletten Drive-Ordnerbaum nach `data/files/` und legt die Metadaten in
 der DB an. Die ursprünglichen Drive-IDs werden als lokale Datei-IDs übernommen, sodass
-bestehende Notizen/Annotationen und Zusammenfassungen erhalten bleiben. Danach können die
+bestehende Zusammenfassungen erhalten bleiben. Danach können die
 `GOOGLE_*`-Variablen aus `.env` entfernt werden.
 
 ---
@@ -119,9 +130,12 @@ Vollständige interaktive Doku unter http://localhost:8000/docs (Swagger UI).
 | `GET` | `/api/auth/me` | Aktuellen Nutzer abfragen |
 | `GET` | `/api/files` | Dateien/Ordner auflisten (optional `?folder_id=`) |
 | `POST` | `/api/files/folder` | Ordner anlegen |
-| `POST` | `/api/files/upload` | Datei (PDF/Word) hochladen |
+| `POST` | `/api/files/upload` | Datei (PDF/Word/Excel/PowerPoint) hochladen |
 | `GET` | `/api/files/{id}/download` | Datei herunterladen |
 | `DELETE` | `/api/files/{id}` | Datei löschen |
+| `GET` | `/api/files/{id}/onlyoffice/config` | Signierte OnlyOffice-Editor-Config (App-Auth) |
+| `GET` | `/api/files/{id}/onlyoffice/download` | Datei für den Document Server (signierter Token) |
+| `POST` | `/api/files/{id}/onlyoffice/callback` | Speicher-Callback des Document Servers |
 | `POST` | `/api/files/{id}/summarize` | Dokument mit Gemini zusammenfassen |
 
 ---
@@ -139,8 +153,8 @@ twonote/
     └── app/
         ├── config.py       # Einstellungen aus .env
         ├── database.py     # SQLite / SQLModel
-        ├── models/         # User, FileRecord, Annotation, Summary …
-        ├── routes/         # auth, files, ai
+        ├── models/         # User, FileRecord, Summary, AiUsage …
+        ├── routes/         # auth, files, ai, onlyoffice
         └── services/       # auth (JWT), storage (lokale Dateien), gemini (KI)
 ```
 
@@ -165,3 +179,5 @@ npm run dev
 ```
 
 > **Hinweis:** Im Dev-Modus muss `CORS_ORIGINS` in der `.env` den Vite-Dev-Server enthalten, z.B. `http://localhost:5173`.
+>
+> Zum Bearbeiten wird zusätzlich der Document Server benötigt – einzeln startbar mit `docker compose up documentserver`. Da der Container die Dateien server-zu-server unter `BACKEND_INTERNAL_URL` abholt, muss diese URL für ihn erreichbar sein (im reinen Host-Dev-Betrieb z.B. `http://host.docker.internal:8000`).

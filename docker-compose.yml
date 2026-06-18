@@ -17,5 +17,25 @@ services:
       - backend
     restart: unless-stopped
 
+  # OnlyOffice Document Server – Co-Editing für Word/Excel/PowerPoint/PDF.
+  # Erreichbar über Port 8082 (lokal http://localhost:8082, in Prod via eigener
+  # Subdomain/Tunnel). JWT_SECRET muss mit ONLYOFFICE_JWT_SECRET im Backend übereinstimmen.
+  documentserver:
+    image: onlyoffice/documentserver:8.2
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET}
+      - JWT_HEADER=Authorization
+    ports:
+      - "8082:80"
+    volumes:
+      - onlyoffice_data:/var/www/onlyoffice/Data
+      - onlyoffice_log:/var/log/onlyoffice
+      - onlyoffice_cache:/var/lib/onlyoffice/documentserver/App_Data/cache/files
+    restart: unless-stopped
+
 volumes:
   backend_data:
+  onlyoffice_data:
+  onlyoffice_log:
+  onlyoffice_cache:

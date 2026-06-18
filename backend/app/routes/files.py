@@ -7,30 +7,40 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.database import get_session
-from app.models.annotation import Annotation  # noqa: F401  (Tabelle registrieren)
 from app.models.file import FileRecord  # noqa: F401  (Tabelle registrieren)
 from app.models.user import User
-from app.services import annotations as annotations_service
 from app.services import storage as storage_service
 from app.services.auth import get_current_user
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
+# Akzeptierte Upload-MIME-Types. Alle werden im OnlyOffice-Editor geöffnet
+# (Word/Excel/PowerPoint im jeweiligen Co-Editing-Modus, PDF im PDF-Editor).
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
+    "application/msword",  # .doc
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
+    "application/vnd.ms-excel",  # .xls
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
+    "application/vnd.ms-powerpoint",  # .ppt
+}
+
+# Endung → MIME-Type, falls der Browser keinen (passenden) content_type mitschickt.
+_EXT_TO_MIME = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppt": "application/vnd.ms-powerpoint",
 }
 
 
 class FolderCreate(BaseModel):
     name: str
     parent_id: Optional[str] = None
-
-
-class AnnotationBody(BaseModel):
-    data: str  # fabric-Canvas als JSON-String
-    label: Optional[str] = None  # selbst vergebener Versionsname (nur beim Anlegen)
 
 
 @router.get("", summary="Dateien und Ordner listen")
@@ -75,16 +85,13 @@ async def upload_file(
     content_type = file.content_type or ""
     if content_type not in ALLOWED_CONTENT_TYPES:
         name_lower = (file.filename or "").lower()
-        if name_lower.endswith(".pdf"):
-            content_type = "application/pdf"
-        elif name_lower.endswith(".docx"):
-            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        elif name_lower.endswith(".doc"):
-            content_type = "application/msword"
+        ext = "." + name_lower.rsplit(".", 1)[-1] if "." in name_lower else ""
+        if ext in _EXT_TO_MIME:
+            content_type = _EXT_TO_MIME[ext]
         else:
             raise HTTPException(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Nur PDF und Word-Dokumente (.pdf, .docx, .doc) werden akzeptiert",
+                detail="Nur PDF-, Word-, Excel- und PowerPoint-Dateien werden akzeptiert",
             )
 
     content = await file.read()
@@ -166,70 +173,3 @@ def delete_file(
         )
     except RuntimeError as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-
-
-@router.get("/{file_id}/annotations", summary="Notiz-Stände (Versionen) einer Datei listen")
-def list_annotations(
-    file_id: str,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """Gibt die Metadaten aller Notiz-Stände zurück (ohne data), neueste zuerst."""
-    rows = annotations_service.list_for_file(session, file_id)
-    versions = [
-        {"id": r.id, "label": r.label, "created_at": r.created_at, "updated_at": r.updated_at}
-        for r in rows
-    ]
-    return {"versions": versions, "latest_id": versions[0]["id"] if versions else None}
-
-
-@router.post(
-    "/{file_id}/annotations",
-    status_code=status.HTTP_201_CREATED,
-    summary="Neuen Notiz-Stand anlegen",
-)
-def create_annotation(
-    file_id: str,
-    body: AnnotationBody,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """Legt einen neuen, eigenständigen Notiz-Stand an."""
-    row = annotations_service.create_version(session, file_id, body.data, body.label or "")
-    return {"id": row.id, "label": row.label, "created_at": row.created_at, "updated_at": row.updated_at}
-
-
-@router.get("/{file_id}/annotations/{version_id}", summary="Einen Notiz-Stand laden")
-def get_annotation(
-    file_id: str,
-    version_id: int,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """Gibt einen bestimmten Notiz-Stand inkl. fabric-JSON zurück."""
-    row = annotations_service.get_version(session, version_id)
-    if row is None or row.file_id != file_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Notiz-Stand nicht gefunden",
-        )
-    return {"id": row.id, "data": row.data, "updated_at": row.updated_at}
-
-
-@router.put("/{file_id}/annotations/{version_id}", summary="Notiz-Stand überschreiben")
-def update_annotation(
-    file_id: str,
-    version_id: int,
-    body: AnnotationBody,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-):
-    """Überschreibt einen bestehenden Notiz-Stand."""
-    row = annotations_service.get_version(session, version_id)
-    if row is None or row.file_id != file_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Notiz-Stand nicht gefunden",
-        )
-    annotations_service.update_version(session, version_id, body.data)
-    return {"status": "ok"}

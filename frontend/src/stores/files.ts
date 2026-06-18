@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { filesApi, type DriveFile } from '@/api'
-import { getCachedFile, putCachedFile, evictFile } from '@/utils/fileCache'
 
 const FOLDER_MIME = 'application/vnd.twonote.folder'
 
@@ -86,32 +85,10 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
-  async function downloadFileBlob(fileId: string): Promise<Blob | null> {
-    const modifiedTime = getFileById(fileId)?.modifiedTime ?? ''
-
-    // 1. Cache-Treffer? (nur wenn modifiedTime bekannt → Invalidierung möglich)
-    if (modifiedTime) {
-      const cached = await getCachedFile(fileId, modifiedTime)
-      if (cached) return cached
-    }
-
-    // 2. Herunterladen und Cache füllen
-    try {
-      const { data } = await filesApi.download(fileId)
-      const blob = data as Blob
-      if (modifiedTime) await putCachedFile(fileId, modifiedTime, blob)
-      return blob
-    } catch (e: any) {
-      error.value = e.response?.data?.detail ?? 'Download fehlgeschlagen.'
-      return null
-    }
-  }
-
   async function deleteFile(fileId: string): Promise<boolean> {
     error.value = null
     try {
       await filesApi.delete(fileId)
-      await evictFile(fileId)
       files.value = files.value.filter((f) => f.id !== fileId)
       if (activeFile.value?.id === fileId) {
         activeFile.value = null
@@ -145,7 +122,6 @@ export const useFilesStore = defineStore('files', () => {
     navigateToIndex,
     uploadFile,
     createFolder,
-    downloadFileBlob,
     deleteFile,
     setActiveFile,
     getFileById,

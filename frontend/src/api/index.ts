@@ -85,11 +85,11 @@ export interface DriveFile {
   size?: string
 }
 
-export interface AnnotationVersion {
-  id: number
-  label: string
-  created_at: string
-  updated_at: string
+export interface OnlyOfficeConfigResponse {
+  documentServerUrl: string
+  // Vollständige DocEditor-Konfiguration (document/editorConfig/documentType/token …),
+  // wird unverändert an DocsAPI.DocEditor übergeben.
+  config: Record<string, any>
 }
 
 export const filesApi = {
@@ -123,27 +123,8 @@ export const filesApi = {
 
   delete: (fileId: string) => api.delete(`/api/files/${fileId}`),
 
-  listAnnotationVersions: (fileId: string) =>
-    api.get<{ versions: AnnotationVersion[]; latest_id: number | null }>(
-      `/api/files/${fileId}/annotations`
-    ),
-
-  getAnnotationVersion: (fileId: string, versionId: number) =>
-    api.get<{ id: number; data: string; updated_at: string }>(
-      `/api/files/${fileId}/annotations/${versionId}`
-    ),
-
-  createAnnotationVersion: (fileId: string, data: string, label = '') =>
-    api.post<{ id: number; label: string; created_at: string; updated_at: string }>(
-      `/api/files/${fileId}/annotations`,
-      { data, label }
-    ),
-
-  updateAnnotationVersion: (fileId: string, versionId: number, data: string) =>
-    api.put<{ status: string }>(
-      `/api/files/${fileId}/annotations/${versionId}`,
-      { data }
-    ),
+  onlyofficeConfig: (fileId: string) =>
+    api.get<OnlyOfficeConfigResponse>(`/api/files/${fileId}/onlyoffice/config`),
 
   summarize: (fileId: string) =>
     api.post<{ file_id: string; filename: string; summary: string }>(

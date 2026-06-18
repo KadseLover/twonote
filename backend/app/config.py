@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 1440
     jwt_algorithm: str = "HS256"
 
+    # OnlyOffice Document Server
+    # Geheimnis, das Backend und Document Server teilen (Config signieren / Callback prüfen).
+    onlyoffice_jwt_secret: str = ""
+    # Öffentliche, vom Browser erreichbare URL des Document Servers (lädt api.js + Editor).
+    onlyoffice_public_url: str = "http://localhost:8082"
+    # Backend-URL aus Sicht des Document Servers (server-zu-server, im Docker-Netz).
+    backend_internal_url: str = "http://backend:8000"
+
     # CORS
     cors_origins: str = "http://localhost:5173"
 

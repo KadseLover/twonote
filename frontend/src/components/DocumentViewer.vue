@@ -1,43 +1,9 @@
 <template>
   <div class="document-viewer">
-    <!-- Speicher-Status als schwebende Anzeige -->
-    <transition name="toast">
-      <span v-if="saveStatus" class="save-status" :class="saveStatusClass">
-        {{ saveStatus }}
-      </span>
-    </transition>
-
-    <!-- Lade-Zustand -->
-    <div v-if="loading" class="loading-overlay">
-      <div class="spinner"></div>
-      <p>Dokument wird geladen…</p>
-    </div>
-
-    <!-- Fehler -->
-    <div v-else-if="loadError" class="error-state">
-      <p>{{ loadError }}</p>
-      <button @click="loadFile">Erneut versuchen</button>
-    </div>
-
-    <!-- Viewer-Layout -->
-    <div v-else class="viewer-layout">
-      <!-- Hauptbereich: PDF-Editor oder Word-Viewer -->
+    <div class="viewer-layout">
+      <!-- Hauptbereich: OnlyOffice-Editor (Co-Editing) -->
       <div class="viewer-main">
-        <PdfEditor
-          v-if="docData && isPdf"
-          :pdf-data="docData"
-          :file-id="fileId"
-          @save-status="onSaveStatus"
-        />
-        <WordViewer
-          v-else-if="docData && isWord"
-          :doc-data="docData"
-          :mime-type="mimeType"
-          :filename="filename"
-        />
-        <div v-else class="error-state">
-          <p>Dieser Dateityp wird nicht unterstützt.</p>
-        </div>
+        <OnlyOfficeEditor :file-id="fileId" />
       </div>
 
       <!-- Toggle: Zusammenfassungs-Leiste ein-/zuklappen -->
@@ -77,10 +43,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useFilesStore } from '@/stores/files'
-import PdfEditor from '@/components/PdfEditor.vue'
-import WordViewer from '@/components/WordViewer.vue'
+import OnlyOfficeEditor from '@/components/OnlyOfficeEditor.vue'
 import SummaryPanel from '@/components/SummaryPanel.vue'
 import { useIsMobile } from '@/utils/useIsMobile'
 
@@ -144,63 +109,9 @@ function resetSidebarWidth() {
   localStorage.setItem(SIDEBAR_STORAGE_KEY, String(SIDEBAR_DEFAULT))
 }
 
-const docData = ref<ArrayBuffer | null>(null)
-const mimeType = ref('')
-const loading = ref(true)
-const loadError = ref('')
-const saveStatus = ref('')
-
 const filename = computed(
   () => filesStore.getFileById(props.fileId)?.name ?? 'Dokument'
 )
-
-const isPdf = computed(
-  () => mimeType.value === 'application/pdf' || filename.value.toLowerCase().endsWith('.pdf')
-)
-const isWord = computed(() => {
-  const m = mimeType.value
-  const n = filename.value.toLowerCase()
-  return (
-    m.includes('wordprocessingml') ||
-    m === 'application/msword' ||
-    n.endsWith('.docx') ||
-    n.endsWith('.doc')
-  )
-})
-
-const saveStatusClass = computed(() => ({
-  'status-saving': saveStatus.value === 'Speichern…' || saveStatus.value === 'Export…',
-  'status-saved': saveStatus.value === 'Gespeichert' || saveStatus.value === 'Exportiert',
-  'status-error': saveStatus.value.startsWith('Fehler'),
-}))
-
-async function loadFile() {
-  loading.value = true
-  loadError.value = ''
-  try {
-    const blob = await filesStore.downloadFileBlob(props.fileId)
-    if (!blob) throw new Error('Datei konnte nicht geladen werden')
-    mimeType.value = blob.type
-    docData.value = await blob.arrayBuffer()
-  } catch (e: any) {
-    loadError.value = e.message || 'Unbekannter Fehler beim Laden'
-  } finally {
-    loading.value = false
-  }
-}
-
-function onSaveStatus(status: string) {
-  saveStatus.value = status
-  if (status === 'Gespeichert' || status === 'Exportiert' || status.startsWith('Fehler')) {
-    setTimeout(() => {
-      saveStatus.value = ''
-    }, 3000)
-  }
-}
-
-onMounted(() => {
-  loadFile()
-})
 </script>
 
 <style scoped>
@@ -213,58 +124,6 @@ onMounted(() => {
   background: var(--bg-primary);
 }
 
-/* Schwebende Speicher-Status-Anzeige */
-.save-status {
-  position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
-  z-index: 20;
-  font-size: 0.8125rem;
-  padding: 0.35rem 0.75rem;
-  border-radius: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  pointer-events: none;
-}
-
-.status-saving { background: #1a2a3a; color: #6aaddb; }
-.status-saved  { background: #1a2d1a; color: var(--color-green); }
-.status-error  { background: #2d1515; color: var(--color-red); }
-
-.toast-enter-active,
-.toast-leave-active {
-  transition: opacity 0.2s, transform 0.2s;
-}
-
-.toast-enter-from,
-.toast-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
-.loading-overlay,
-.error-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  gap: 1rem;
-}
-
-.spinner {
-  width: 36px;
-  height: 36px;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 .viewer-layout {
   display: flex;
   flex: 1;
@@ -274,7 +133,8 @@ onMounted(() => {
 
 .viewer-main {
   flex: 1;
-  overflow: auto;
+  min-width: 0;
+  overflow: hidden;
   background: #181818;
 }
 
