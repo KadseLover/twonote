@@ -70,6 +70,11 @@ export const authApi = {
     api.post<UserResponse>('/api/auth/register-auth', payload),
   me: () => api.get<UserResponse>('/api/auth/me'),
   setupStatus: () => api.get<{ has_users: boolean }>('/api/auth/setup-status'),
+  usersInfo: (ids: (string | number)[]) =>
+    api.get<{ id: number; username: string; has_avatar: boolean }[]>(
+      '/api/auth/users/info',
+      { params: { ids: ids.join(',') } },
+    ),
   uploadAvatar: (file: File) => {
     const form = new FormData()
     form.append('file', file)

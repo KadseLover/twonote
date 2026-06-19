@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
@@ -191,6 +191,33 @@ def get_avatar(user_id: int, session: Session = Depends(get_session)):
 
     mime = "image/jpeg" if user.avatar_ext == "jpg" else f"image/{user.avatar_ext}"
     return Response(content=content, media_type=mime, headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/users/info", summary="Name/Avatar zu Nutzer-IDs (für Co-Editor-Avatare)")
+def users_info(
+    ids: str = Query(..., description="Kommagetrennte Nutzer-IDs"),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Liefert ``id``/``username``/``has_avatar`` zu den angefragten IDs.
+
+    Wird vom OnlyOffice-``onRequestUsers``-Handler genutzt, um die Avatare der
+    Mitbearbeiter anzuzeigen. Nicht-numerische/unbekannte IDs werden ignoriert.
+    """
+    result = []
+    seen: set[int] = set()
+    for raw in ids.split(","):
+        raw = raw.strip()
+        if not raw.isdigit():
+            continue
+        uid = int(raw)
+        if uid in seen:
+            continue
+        seen.add(uid)
+        user = session.get(User, uid)
+        if user:
+            result.append({"id": user.id, "username": user.username, "has_avatar": user.has_avatar})
+    return result
 
 
 @router.get("/users", response_model=list[UserRead])

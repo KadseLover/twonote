@@ -17,7 +17,7 @@
 
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from 'vue'
-import { filesApi } from '@/api'
+import { filesApi, authApi } from '@/api'
 import { useIsMobile } from '@/utils/useIsMobile'
 
 const props = defineProps<{
@@ -75,6 +75,9 @@ async function initEditor() {
           errorMsg.value = 'Im Editor ist ein Fehler aufgetreten.'
           loading.value = false
         },
+        // Avatare/Namen der Mitbearbeiter liefern (eigenes Bild kommt aus der Config,
+        // die der anderen müssen über setUsers nachgereicht werden).
+        onRequestUsers: handleRequestUsers,
       },
     }
 
@@ -84,6 +87,30 @@ async function initEditor() {
     console.error('OnlyOffice-Editor konnte nicht gestartet werden:', e)
     errorMsg.value = e?.response?.data?.detail || e?.message || 'Editor konnte nicht geladen werden.'
     loading.value = false
+  }
+}
+
+// OnlyOffice fragt beim Öffnen der Mitbearbeiter-Liste/Kommentare nach Nutzer-Infos.
+// Wir lösen die IDs in Name + (absolute) Avatar-URL auf und reichen sie via setUsers nach.
+async function handleRequestUsers(event: any) {
+  try {
+    const payload = event?.data ?? event ?? {}
+    const c = payload.c ?? 'info'
+    const rawIds = Array.isArray(payload.id) ? payload.id : payload.id != null ? [payload.id] : []
+    if (rawIds.length === 0) {
+      editor?.setUsers?.({ c, users: [] })
+      return
+    }
+    const { data } = await authApi.usersInfo(rawIds)
+    const origin = window.location.origin
+    const users = data.map((u) => ({
+      id: String(u.id),
+      name: u.username,
+      image: u.has_avatar ? `${origin}/api/auth/avatars/${u.id}` : undefined,
+    }))
+    editor?.setUsers?.({ c, users })
+  } catch (e) {
+    console.warn('onRequestUsers fehlgeschlagen:', e)
   }
 }
 
