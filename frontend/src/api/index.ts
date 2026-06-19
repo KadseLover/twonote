@@ -51,6 +51,7 @@ export interface UserResponse {
   id: number
   username: string
   is_active: boolean
+  has_avatar: boolean
 }
 
 export const authApi = {
@@ -69,6 +70,17 @@ export const authApi = {
     api.post<UserResponse>('/api/auth/register-auth', payload),
   me: () => api.get<UserResponse>('/api/auth/me'),
   setupStatus: () => api.get<{ has_users: boolean }>('/api/auth/setup-status'),
+  uploadAvatar: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<UserResponse>('/api/auth/me/avatar', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  removeAvatar: () => api.delete<UserResponse>('/api/auth/me/avatar'),
+  // URL für das Profilbild eines Nutzers (öffentlich; version = Cache-Buster)
+  avatarUrl: (userId: number, version: number) =>
+    `/api/auth/avatars/${userId}?v=${version}`,
   listUsers: () => api.get<UserResponse[]>('/api/auth/users'),
   updateUser: (id: number, payload: { username?: string; password?: string }) =>
     api.patch<UserResponse>(`/api/auth/users/${id}`, payload),
@@ -121,6 +133,12 @@ export const filesApi = {
   download: (fileId: string) =>
     api.get(`/api/files/${fileId}/download`, { responseType: 'blob' }),
 
+  downloadZip: (ids: string[]) =>
+    api.post('/api/files/download-zip', { ids }, { responseType: 'blob' }),
+
+  move: (ids: string[], parentId: string | null) =>
+    api.post<{ moved: number }>('/api/files/move', { ids, parent_id: parentId }),
+
   delete: (fileId: string) => api.delete(`/api/files/${fileId}`),
 
   onlyofficeConfig: (fileId: string) =>
@@ -131,8 +149,15 @@ export const filesApi = {
       `/api/files/${fileId}/summarize`
     ),
 
+  summarizeFolder: (folderId: string) =>
+    api.post<{ file_id: string; filename: string; summary: string }>(
+      `/api/files/${folderId}/summarize-folder`
+    ),
+
   aiUsage: () =>
-    api.get<{ used: number; limit: number; date: string }>('/api/files/ai-usage'),
+    api.get<{ used: number; limit: number; date: string; resets_at: string }>(
+      '/api/files/ai-usage'
+    ),
 
   latestSummary: (fileId: string) =>
     api.get<{ content: string; filename: string; created_at: string } | null>(
@@ -143,4 +168,28 @@ export const filesApi = {
     api.get<
       { id: number; file_id: string; filename: string; content: string; created_at: string }[]
     >('/api/files/summaries'),
+
+  // ─── Frage-Antwort-Chat (Dokument oder Ordner) ───
+  chat: (
+    targetId: string,
+    payload: { question: string; session_id?: string; target_kind: 'file' | 'folder' },
+  ) =>
+    api.post<{ session_id: string; answer: string; messages: ChatMessage[] }>(
+      `/api/files/${targetId}/chat`,
+      payload,
+    ),
+
+  latestChat: (targetId: string) =>
+    api.get<{
+      session_id: string
+      target_kind: 'file' | 'folder'
+      target_name: string
+      messages: ChatMessage[]
+    } | null>(`/api/files/${targetId}/chat`),
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
 }

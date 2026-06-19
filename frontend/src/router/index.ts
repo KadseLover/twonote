@@ -25,6 +25,14 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // Gleiche Ansicht wie 'home' – die Ordner-ID öffnet das KI-Panel für den
+      // ganzen Ordner (Zusammenfassung + Fragen) im Hauptbereich.
+      path: '/folder/:id',
+      name: 'folder',
+      component: () => import('@/views/HomeView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/archive',
       name: 'archive',
       component: () => import('@/views/ArchiveView.vue'),

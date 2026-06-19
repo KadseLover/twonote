@@ -1,3 +1,6 @@
+import io
+import os
+import zipfile
 from typing import Optional
 from urllib.parse import quote
 
@@ -41,6 +44,15 @@ _EXT_TO_MIME = {
 class FolderCreate(BaseModel):
     name: str
     parent_id: Optional[str] = None
+
+
+class MoveRequest(BaseModel):
+    ids: list[str]
+    parent_id: Optional[str] = None  # None = Wurzel
+
+
+class DownloadZipRequest(BaseModel):
+    ids: list[str]
 
 
 @router.get("", summary="Dateien und Ordner listen")
@@ -148,6 +160,76 @@ def download_file(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
 
     return _file_response(content, filename, mime_type)
+
+
+@router.post("/move", summary="Dateien/Ordner verschieben")
+def move_files(
+    body: MoveRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Verschiebt mehrere Dateien/Ordner in einen Zielordner (oder die Wurzel).
+
+    Validiert alle Einträge und committet am Ende einmal – schlägt eine
+    Verschiebung fehl (z. B. Ordner in sich selbst), wird nichts verschoben.
+    """
+    if not body.ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Keine Einträge ausgewählt")
+
+    try:
+        for file_id in body.ids:
+            storage_service.move_file(session, file_id, body.parent_id)
+        session.commit()
+    except RuntimeError as e:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    return {"moved": len(body.ids)}
+
+
+@router.post("/download-zip", summary="Auswahl als ZIP herunterladen")
+def download_zip(
+    body: DownloadZipRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Packt die ausgewählten Dateien/Ordner in ein ZIP (Ordnerstruktur erhalten)."""
+    if not body.ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Keine Einträge ausgewählt")
+
+    entries = storage_service.collect_for_zip(session, body.ids)
+    if not entries:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Die Auswahl enthält keine herunterladbaren Dateien.",
+        )
+
+    buffer = io.BytesIO()
+    seen: set[str] = set()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for arcname, file_id in entries:
+            try:
+                content, _, _ = storage_service.download_file(session, file_id)
+            except FileNotFoundError:
+                continue
+            # Namens-Kollisionen im Archiv eindeutig machen
+            name = arcname
+            counter = 1
+            while name in seen:
+                root, ext = os.path.splitext(arcname)
+                name = f"{root} ({counter}){ext}"
+                counter += 1
+            seen.add(name)
+            zf.writestr(name, content)
+
+    # Bei genau einem ausgewählten Ordner dessen Namen verwenden, sonst generisch.
+    zip_name = "twonote-download.zip"
+    if len(body.ids) == 1:
+        meta = storage_service.get_file_meta(session, body.ids[0])
+        if meta and meta["mimeType"] == storage_service.FOLDER_MIME:
+            zip_name = f"{meta['name']}.zip"
+
+    return _file_response(buffer.getvalue(), zip_name, "application/zip")
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Datei löschen")

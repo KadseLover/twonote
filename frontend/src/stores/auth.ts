@@ -10,6 +10,8 @@ export const useAuthStore = defineStore('auth', () => {
   )
   const loading = ref(false)
   const error = ref<string | null>(null)
+  // Cache-Buster für Avatar-URLs (bei Upload/Entfernen erhöht).
+  const avatarVersion = ref(Date.now())
 
   // Getters
   const isLoggedIn = computed(() => !!token.value)
@@ -108,11 +110,38 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function uploadAvatar(file: File): Promise<void> {
+    error.value = null
+    try {
+      const { data } = await authApi.uploadAvatar(file)
+      user.value = data
+      localStorage.setItem('twonote_user', JSON.stringify(data))
+      avatarVersion.value = Date.now()
+    } catch (e: any) {
+      error.value = e.response?.data?.detail ?? 'Profilbild konnte nicht hochgeladen werden.'
+      throw e
+    }
+  }
+
+  async function removeAvatar(): Promise<void> {
+    error.value = null
+    try {
+      const { data } = await authApi.removeAvatar()
+      user.value = data
+      localStorage.setItem('twonote_user', JSON.stringify(data))
+      avatarVersion.value = Date.now()
+    } catch (e: any) {
+      error.value = e.response?.data?.detail ?? 'Profilbild konnte nicht entfernt werden.'
+      throw e
+    }
+  }
+
   return {
     token,
     user,
     loading,
     error,
+    avatarVersion,
     isLoggedIn,
     username,
     isFirstUser,
@@ -123,5 +152,7 @@ export const useAuthStore = defineStore('auth', () => {
     fetchUsers,
     updateUser,
     deleteUser,
+    uploadAvatar,
+    removeAvatar,
   }
 })

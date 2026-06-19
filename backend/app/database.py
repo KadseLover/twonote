@@ -18,6 +18,7 @@ def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
     _drop_annotation_table()
     _ensure_filerecord_names()
+    _add_avatar_columns()
 
 
 def _drop_annotation_table() -> None:
@@ -55,6 +56,26 @@ def _ensure_filerecord_names() -> None:
                 text("UPDATE filerecord SET name = :n WHERE id = :id"),
                 {"n": base, "id": row_id},
             )
+        conn.commit()
+
+
+def _add_avatar_columns() -> None:
+    """Ergänzt die Avatar-Spalten in der ``user``-Tabelle (idempotent).
+
+    ``create_all`` legt bei bestehenden Tabellen keine neuen Spalten an, daher
+    hier per ``ALTER TABLE`` nachrüsten, falls sie fehlen.
+    """
+    with engine.connect() as conn:
+        exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
+        ).first()
+        if not exists:
+            return
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(user)")).fetchall()}
+        if "has_avatar" not in cols:
+            conn.execute(text("ALTER TABLE user ADD COLUMN has_avatar BOOLEAN DEFAULT 0"))
+        if "avatar_ext" not in cols:
+            conn.execute(text("ALTER TABLE user ADD COLUMN avatar_ext TEXT"))
         conn.commit()
 
 

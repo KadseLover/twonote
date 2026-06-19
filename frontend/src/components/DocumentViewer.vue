@@ -34,9 +34,9 @@
         @click="summaryCollapsed = true"
       ></div>
 
-      <!-- KI-Zusammenfassung (Seitenleiste) -->
+      <!-- KI-Panel (Seitenleiste) -->
       <aside v-show="!summaryCollapsed" class="summary-sidebar" :style="{ width: sidebarWidth + 'px' }">
-        <SummaryPanel :file-id="fileId" :filename="filename" />
+        <AiPanel :target="{ kind: 'file', id: fileId, name: filename }" />
       </aside>
     </div>
   </div>
@@ -46,7 +46,7 @@
 import { ref, computed, watch } from 'vue'
 import { useFilesStore } from '@/stores/files'
 import OnlyOfficeEditor from '@/components/OnlyOfficeEditor.vue'
-import SummaryPanel from '@/components/SummaryPanel.vue'
+import AiPanel from '@/components/AiPanel.vue'
 import { useIsMobile } from '@/utils/useIsMobile'
 
 const props = defineProps<{

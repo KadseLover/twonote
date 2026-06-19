@@ -35,6 +35,10 @@
 
         <template v-else>
           <div class="user-info">
+            <div class="user-avatar">
+              <img v-if="u.has_avatar" :src="avatarUrl(u)" class="avatar-img" alt="" />
+              <span v-else>{{ (u.username.charAt(0) || '?').toUpperCase() }}</span>
+            </div>
             <span class="user-name">{{ u.username }}</span>
             <span v-if="u.id === 1" class="badge">Admin</span>
           </div>
@@ -95,11 +99,15 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import type { UserResponse } from '@/api'
+import { authApi, type UserResponse } from '@/api'
 
 defineEmits<{ close: [] }>()
 
 const auth = useAuthStore()
+
+function avatarUrl(u: UserResponse): string {
+  return authApi.avatarUrl(u.id, auth.avatarVersion)
+}
 
 const users = ref<UserResponse[]>([])
 const loading = ref(true)
@@ -251,6 +259,28 @@ onMounted(loadUsers)
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
+}
+
+.user-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-avatar .avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .user-name {

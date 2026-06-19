@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session
@@ -26,6 +26,15 @@ def record_summary(session: Session) -> None:
     session.commit()
 
 
+def _next_reset_utc() -> str:
+    """Nächste Mitternacht Pacific Time als UTC-ISO-String (Zeitpunkt des Resets)."""
+    now_pt = datetime.now(PACIFIC)
+    next_midnight = (now_pt + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return next_midnight.astimezone(timezone.utc).isoformat()
+
+
 def get_usage(session: Session) -> dict:
     """Liefert Verbrauch und Limit für den heutigen (PT-)Tag."""
     today = _today_pt()
@@ -34,4 +43,5 @@ def get_usage(session: Session) -> dict:
         "used": row.count if row else 0,
         "limit": settings.gemini_daily_limit,
         "date": today,
+        "resets_at": _next_reset_utc(),
     }

@@ -12,10 +12,15 @@ export const useFilesStore = defineStore('files', () => {
   const uploadProgress = ref(0)
   const error = ref<string | null>(null)
   const activeFile = ref<DriveFile | null>(null)
+  // Für die KI-Ordneransicht: zuletzt geöffneter Ordner (Namensauflösung).
+  const activeFolder = ref<{ id: string; name: string } | null>(null)
 
   // Ordner-Navigation
   const currentFolderId = ref<string | undefined>(undefined)
   const folderPath = ref<{ id: string; name: string }[]>([])
+
+  // Mehrfachauswahl (gilt nur für die aktuelle Ordneransicht)
+  const selectedIds = ref<string[]>([])
 
   // Actions
   async function fetchFiles(): Promise<void> {
@@ -32,12 +37,14 @@ export const useFilesStore = defineStore('files', () => {
   }
 
   function navigateIntoFolder(folder: DriveFile): void {
+    clearSelection()
     folderPath.value.push({ id: folder.id, name: folder.name })
     currentFolderId.value = folder.id
     fetchFiles()
   }
 
   function navigateToIndex(index: number): void {
+    clearSelection()
     if (index < 0) {
       // Zurück zur Wurzel
       folderPath.value = []
@@ -100,8 +107,67 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
+  // ─── Mehrfachauswahl ───
+  function isSelected(id: string): boolean {
+    return selectedIds.value.includes(id)
+  }
+
+  function toggleSelection(id: string): void {
+    if (isSelected(id)) {
+      selectedIds.value = selectedIds.value.filter((x) => x !== id)
+    } else {
+      selectedIds.value = [...selectedIds.value, id]
+    }
+  }
+
+  function selectOnly(id: string): void {
+    selectedIds.value = [id]
+  }
+
+  function clearSelection(): void {
+    selectedIds.value = []
+  }
+
+  async function moveItems(ids: string[], parentId: string | null): Promise<boolean> {
+    error.value = null
+    // Ziel-Ordner nie in sich selbst verschieben.
+    const toMove = ids.filter((id) => id !== parentId)
+    if (toMove.length === 0) return false
+    try {
+      await filesApi.move(toMove, parentId)
+      clearSelection()
+      await fetchFiles()
+      return true
+    } catch (e: any) {
+      error.value = e.response?.data?.detail ?? 'Verschieben fehlgeschlagen.'
+      return false
+    }
+  }
+
+  async function deleteMany(ids: string[]): Promise<boolean> {
+    error.value = null
+    try {
+      await Promise.all(ids.map((id) => filesApi.delete(id)))
+      files.value = files.value.filter((f) => !ids.includes(f.id))
+      if (activeFile.value && ids.includes(activeFile.value.id)) {
+        activeFile.value = null
+      }
+      clearSelection()
+      return true
+    } catch (e: any) {
+      error.value = e.response?.data?.detail ?? 'Löschen fehlgeschlagen.'
+      // Liste neu laden, da evtl. ein Teil gelöscht wurde
+      await fetchFiles()
+      return false
+    }
+  }
+
   function setActiveFile(file: DriveFile | null): void {
     activeFile.value = file
+  }
+
+  function setActiveFolder(folder: DriveFile | null): void {
+    activeFolder.value = folder ? { id: folder.id, name: folder.name } : null
   }
 
   function getFileById(id: string): DriveFile | undefined {
@@ -115,15 +181,24 @@ export const useFilesStore = defineStore('files', () => {
     uploadProgress,
     error,
     activeFile,
+    activeFolder,
     currentFolderId,
     folderPath,
+    selectedIds,
     fetchFiles,
     navigateIntoFolder,
     navigateToIndex,
     uploadFile,
     createFolder,
     deleteFile,
+    deleteMany,
+    moveItems,
+    isSelected,
+    toggleSelection,
+    selectOnly,
+    clearSelection,
     setActiveFile,
+    setActiveFolder,
     getFileById,
   }
 })

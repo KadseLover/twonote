@@ -1,11 +1,13 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 
 from app.database import get_session
 from app.models.user import User, UserCreate, UserRead, UserUpdate, Token
+from app.services import avatar as avatar_service
 from app.services.auth import (
     authenticate_user,
     create_access_token,
@@ -17,6 +19,10 @@ from app.services.auth import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Profilbild-Upload: erlaubte Formate und Größenlimit.
+ALLOWED_AVATAR_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 
 def count_users(session: Session) -> int:
@@ -118,6 +124,73 @@ def login(
 def get_me(current_user: User = Depends(get_current_user)):
     """Gibt den aktuell eingeloggten Nutzer zurück."""
     return current_user
+
+
+@router.post("/me/avatar", response_model=UserRead, summary="Profilbild hochladen")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Lädt ein Profilbild für den aktuellen Nutzer hoch (JPEG/PNG/WebP/GIF, ≤5 MB)."""
+    if file.content_type not in ALLOWED_AVATAR_MIMES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Nur JPEG-, PNG-, WebP- oder GIF-Bilder werden akzeptiert",
+        )
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Die Datei ist leer")
+    if len(content) > MAX_AVATAR_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Das Bild ist zu groß (max. 5 MB)",
+        )
+
+    ext = avatar_service.EXT_BY_MIME[file.content_type]
+    try:
+        avatar_service.save_avatar(current_user.id, content, ext)
+    except OSError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+
+    current_user.has_avatar = True
+    current_user.avatar_ext = ext
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    return current_user
+
+
+@router.delete("/me/avatar", response_model=UserRead, summary="Profilbild entfernen")
+def remove_avatar(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Entfernt das Profilbild des aktuellen Nutzers."""
+    avatar_service.delete_avatar(current_user.id, current_user.avatar_ext)
+    current_user.has_avatar = False
+    current_user.avatar_ext = None
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    return current_user
+
+
+@router.get("/avatars/{user_id}", summary="Profilbild eines Nutzers")
+def get_avatar(user_id: int, session: Session = Depends(get_session)):
+    """Liefert das Profilbild eines Nutzers (öffentlich, damit ``<img src>`` lädt)."""
+    user = session.get(User, user_id)
+    if user is None or not user.has_avatar or not user.avatar_ext:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profilbild nicht gefunden")
+
+    try:
+        content = avatar_service.read_avatar(user_id, user.avatar_ext)
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profilbild nicht gefunden")
+
+    mime = "image/jpeg" if user.avatar_ext == "jpg" else f"image/{user.avatar_ext}"
+    return Response(content=content, media_type=mime, headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/users", response_model=list[UserRead])

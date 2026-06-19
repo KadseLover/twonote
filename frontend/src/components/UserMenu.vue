@@ -7,8 +7,18 @@
       title="Konto-Menü"
       @click="menuOpen = !menuOpen"
     >
-      {{ initial }}
+      <img v-if="myAvatarUrl" :src="myAvatarUrl" class="avatar-img" alt="" />
+      <span v-else>{{ initial }}</span>
     </button>
+
+    <!-- Verstecktes Datei-Eingabefeld für den Profilbild-Upload -->
+    <input
+      ref="fileInput"
+      type="file"
+      accept="image/png,image/jpeg,image/webp,image/gif"
+      class="hidden-file"
+      @change="onFileSelected"
+    />
 
     <!-- Dropdown (öffnet nach oben) -->
     <template v-if="menuOpen">
@@ -17,11 +27,29 @@
 
       <div class="dropdown">
         <div class="dropdown-header">
-          <span class="dropdown-label">Angemeldet als</span>
-          <span class="dropdown-user">{{ auth.username }}</span>
+          <div class="header-avatar">
+            <img v-if="myAvatarUrl" :src="myAvatarUrl" class="avatar-img" alt="" />
+            <span v-else>{{ initial }}</span>
+          </div>
+          <div class="header-text">
+            <span class="dropdown-label">Angemeldet als</span>
+            <span class="dropdown-user">{{ auth.username }}</span>
+          </div>
         </div>
 
         <div class="dropdown-divider"></div>
+
+        <button class="dropdown-item" :disabled="avatarBusy" @click="openFilePicker">
+          {{ avatarBusy ? 'Wird hochgeladen…' : 'Profilbild ändern' }}
+        </button>
+        <button
+          v-if="auth.user?.has_avatar"
+          class="dropdown-item"
+          :disabled="avatarBusy"
+          @click="handleRemoveAvatar"
+        >
+          Profilbild entfernen
+        </button>
 
         <button v-if="auth.isFirstUser" class="dropdown-item" @click="openUserManagement">
           Nutzer verwalten
@@ -42,6 +70,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { authApi } from '@/api'
 import UserManagement from '@/components/UserManagement.vue'
 
 const router = useRouter()
@@ -49,8 +78,47 @@ const auth = useAuthStore()
 
 const menuOpen = ref(false)
 const userMgmtOpen = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+const avatarBusy = ref(false)
 
 const initial = computed(() => (auth.username.charAt(0) || '?').toUpperCase())
+
+const myAvatarUrl = computed(() =>
+  auth.user?.has_avatar ? authApi.avatarUrl(auth.user.id, auth.avatarVersion) : null
+)
+
+function openFilePicker() {
+  if (avatarBusy.value) return
+  fileInput.value?.click()
+}
+
+async function onFileSelected(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // erlaubt erneutes Wählen derselben Datei
+  if (!file) return
+  avatarBusy.value = true
+  try {
+    await auth.uploadAvatar(file)
+    menuOpen.value = false
+  } catch {
+    alert(auth.error ?? 'Profilbild konnte nicht hochgeladen werden.')
+  } finally {
+    avatarBusy.value = false
+  }
+}
+
+async function handleRemoveAvatar() {
+  avatarBusy.value = true
+  try {
+    await auth.removeAvatar()
+    menuOpen.value = false
+  } catch {
+    alert(auth.error ?? 'Profilbild konnte nicht entfernt werden.')
+  } finally {
+    avatarBusy.value = false
+  }
+}
 
 function handleLogout() {
   menuOpen.value = false
@@ -90,10 +158,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
+  overflow: hidden;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.15s, box-shadow 0.15s;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+.hidden-file {
+  display: none;
 }
 
 .avatar-btn:hover,
@@ -124,9 +206,31 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 .dropdown-header {
   display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.6rem 0.55rem;
+}
+
+.header-avatar {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-text {
+  display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  padding: 0.5rem 0.6rem 0.55rem;
+  min-width: 0;
 }
 
 .dropdown-label {
@@ -167,6 +271,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 .dropdown-item:hover {
   background: var(--bg-tertiary);
+}
+
+.dropdown-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.dropdown-item:disabled:hover {
+  background: transparent;
 }
 
 .dropdown-item.danger {

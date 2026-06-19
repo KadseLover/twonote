@@ -44,15 +44,25 @@
         <!-- Breadcrumb-Navigation + Aktualisieren -->
         <div class="sidebar-nav">
           <nav class="breadcrumb" aria-label="Ordner-Navigation">
-            <button class="crumb-btn" :class="{ active: filesStore.folderPath.length === 0 }" @click="filesStore.navigateToIndex(-1)">
+            <button
+              class="crumb-btn"
+              :class="{ active: filesStore.folderPath.length === 0, 'drop-target': dropCrumb === 'root' }"
+              @click="filesStore.navigateToIndex(-1)"
+              @dragover="onCrumbDragOver('root', $event)"
+              @dragleave="dropCrumb = null"
+              @drop="onCrumbDrop(null)"
+            >
               Alle Dokumente
             </button>
             <template v-for="(crumb, i) in filesStore.folderPath" :key="crumb.id">
               <span class="crumb-sep">/</span>
               <button
                 class="crumb-btn"
-                :class="{ active: i === filesStore.folderPath.length - 1 }"
+                :class="{ active: i === filesStore.folderPath.length - 1, 'drop-target': dropCrumb === crumb.id }"
                 @click="filesStore.navigateToIndex(i)"
+                @dragover="onCrumbDragOver(crumb.id, $event)"
+                @dragleave="dropCrumb = null"
+                @drop="onCrumbDrop(crumb.id)"
               >
                 {{ crumb.name }}
               </button>
@@ -79,15 +89,45 @@
           </button>
         </div>
 
+        <!-- Bulk-Aktionsleiste bei Mehrfachauswahl -->
+        <div v-if="filesStore.selectedIds.length" class="bulk-bar">
+          <div class="bulk-top">
+            <span class="bulk-count">{{ filesStore.selectedIds.length }} ausgewählt</span>
+            <div class="bulk-actions">
+              <button class="bulk-btn" title="Als ZIP herunterladen" @click="downloadSelected">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </button>
+              <button class="bulk-btn delete" title="Löschen" @click="deleteSelected">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+              </button>
+              <button class="bulk-btn" title="Auswahl aufheben" @click="filesStore.clearSelection()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <span class="bulk-hint">Zum Verschieben auf einen Ordner oder Pfad ziehen</span>
+        </div>
+
         <!-- Datei-Liste (scrollbar) -->
         <div class="sidebar-files">
           <FileSidebarList
             :files="filesStore.files"
             :loading="filesStore.loading"
-            :active-id="activeFileId"
+            :active-id="activeFileId || activeFolderId"
             @open="openFile"
             @navigate="navigateIntoFolder"
             @delete="handleDelete"
+            @open-ai="openFolderAi"
           />
         </div>
 
@@ -95,8 +135,8 @@
         <div class="sidebar-footer">
           <button
             class="home-btn"
-            :disabled="!activeFileId"
-            title="Dokument schließen"
+            :disabled="!activeFileId && !activeFolderId"
+            title="Schließen"
             @click="goHome"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -130,9 +170,10 @@
         </svg>
       </button>
 
-      <!-- Rechter Bereich: Dokument-Viewer -->
+      <!-- Rechter Bereich: Dokument-Viewer oder KI-Ordneransicht -->
       <main class="viewer-area">
         <DocumentViewer v-if="activeFileId" :key="activeFileId" :file-id="activeFileId" />
+        <FolderViewer v-else-if="activeFolderId" :key="activeFolderId" :folder-id="activeFolderId" />
         <div v-else class="empty-viewer">
           <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -159,10 +200,11 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFilesStore } from '@/stores/files'
-import { type DriveFile } from '@/api'
+import { filesApi, type DriveFile } from '@/api'
 import FileUpload from '@/components/FileUpload.vue'
 import FileSidebarList from '@/components/FileSidebarList.vue'
 import DocumentViewer from '@/components/DocumentViewer.vue'
+import FolderViewer from '@/components/FolderViewer.vue'
 import UserMenu from '@/components/UserMenu.vue'
 import PromptDialog from '@/components/PromptDialog.vue'
 import { useIsMobile } from '@/utils/useIsMobile'
@@ -174,7 +216,10 @@ const filesStore = useFilesStore()
 const { isMobile } = useIsMobile()
 const mobileNavOpen = ref(false)
 
-const activeFileId = computed(() => (route.params.id as string) || '')
+// Datei-ID nur in der 'file'-Route, Ordner-ID nur in der 'folder'-Route –
+// beide Routen teilen sich denselben :id-Parameter.
+const activeFileId = computed(() => (route.name === 'file' ? (route.params.id as string) || '' : ''))
+const activeFolderId = computed(() => (route.name === 'folder' ? (route.params.id as string) || '' : ''))
 
 // Breite der linken Leiste (anpassbar, in localStorage gespeichert)
 const SIDEBAR_DEFAULT = 320
@@ -248,11 +293,67 @@ function openFile(file: DriveFile) {
   mobileNavOpen.value = false
 }
 
+function openFolderAi(folder: DriveFile) {
+  filesStore.setActiveFolder(folder)
+  router.push({ name: 'folder', params: { id: folder.id } })
+  // Auf dem Handy: Schublade schließen, damit das KI-Panel sichtbar wird.
+  mobileNavOpen.value = false
+}
+
+// ─── Mehrfachauswahl: Bulk-Aktionen + Verschieben per Breadcrumb-Drop ───
+const dropCrumb = ref<string | null>(null)
+
+async function downloadSelected() {
+  const ids = [...filesStore.selectedIds]
+  if (!ids.length) return
+  try {
+    const res = await filesApi.downloadZip(ids)
+    const blob = res.data as Blob
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'twonote-download.zip'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch {
+    alert('Download fehlgeschlagen.')
+  }
+}
+
+async function deleteSelected() {
+  const ids = [...filesStore.selectedIds]
+  if (!ids.length) return
+  if (!confirm(`${ids.length} Eintrag/Einträge löschen? Ordner werden mit ihrem gesamten Inhalt gelöscht.`)) return
+  const hadActive =
+    (!!activeFileId.value && ids.includes(activeFileId.value)) ||
+    (!!activeFolderId.value && ids.includes(activeFolderId.value))
+  await filesStore.deleteMany(ids)
+  if (hadActive) router.push({ name: 'home' })
+}
+
+function onCrumbDragOver(id: string, e: DragEvent) {
+  if (!filesStore.selectedIds.length) return
+  e.preventDefault()
+  dropCrumb.value = id
+}
+
+function onCrumbDrop(parentId: string | null) {
+  dropCrumb.value = null
+  if (!filesStore.selectedIds.length) return
+  filesStore.moveItems([...filesStore.selectedIds], parentId)
+}
+
 async function handleDelete(file: DriveFile) {
-  if (!confirm(`"${file.name}" wirklich löschen?`)) return
+  const isFolder = file.mimeType === 'application/vnd.twonote.folder'
+  const msg = isFolder
+    ? `Ordner "${file.name}" mit seinem gesamten Inhalt löschen?`
+    : `"${file.name}" wirklich löschen?`
+  if (!confirm(msg)) return
   await filesStore.deleteFile(file.id)
-  // War die gelöschte Datei gerade geöffnet? Viewer schließen.
-  if (file.id === activeFileId.value) {
+  // War die gelöschte Datei/der Ordner gerade geöffnet? Ansicht schließen.
+  if (file.id === activeFileId.value || file.id === activeFolderId.value) {
     router.push({ name: 'home' })
   }
 }
@@ -440,6 +541,13 @@ function goHome() {
   cursor: default;
 }
 
+.crumb-btn.drop-target {
+  color: var(--accent);
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .refresh-btn {
   display: flex;
   align-items: center;
@@ -475,6 +583,69 @@ function goHome() {
 .refresh-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Bulk-Aktionsleiste (Mehrfachauswahl) ──────────────────── */
+.bulk-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  margin: 0 1rem 0.4rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+}
+
+.bulk-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.bulk-count {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.bulk-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 0.3rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.bulk-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.bulk-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.bulk-btn.delete:hover {
+  color: var(--color-red);
+}
+
+.bulk-hint {
+  font-size: 0.6875rem;
+  color: var(--text-faint);
 }
 
 .sidebar-files {

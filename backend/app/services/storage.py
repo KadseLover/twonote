@@ -82,6 +82,121 @@ def list_files(session: Session, folder_id: Optional[str] = None) -> list[dict]:
     return [_to_dict(r) for r in rows]
 
 
+def list_descendant_files(session: Session, folder_id: str) -> list[FileRecord]:
+    """Sammelt alle Dateien (keine Ordner) unterhalb eines Ordners – rekursiv.
+
+    Läuft den ``parent_id``-Baum iterativ über eine Queue ab, sodass auch tief
+    verschachtelte Unterordner berücksichtigt werden. Reihenfolge: neueste zuerst,
+    Ordnerebene für Ordnerebene.
+    """
+    files: list[FileRecord] = []
+    queue: list[str] = [folder_id]
+    seen: set[str] = set()
+    while queue:
+        current = queue.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+        statement = (
+            select(FileRecord)
+            .where(FileRecord.parent_id == current)
+            .order_by(FileRecord.is_folder.desc(), FileRecord.modified_at.desc())
+        )
+        for record in session.exec(statement).all():
+            if record.is_folder:
+                queue.append(record.id)
+            else:
+                files.append(record)
+    return files
+
+
+def _collect_descendants(session: Session, folder_id: str) -> list[FileRecord]:
+    """Sammelt alle Nachfahren eines Ordners – Dateien **und** Unterordner – rekursiv."""
+    descendants: list[FileRecord] = []
+    queue: list[str] = [folder_id]
+    seen: set[str] = set()
+    while queue:
+        current = queue.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+        statement = select(FileRecord).where(FileRecord.parent_id == current)
+        for record in session.exec(statement).all():
+            descendants.append(record)
+            if record.is_folder:
+                queue.append(record.id)
+    return descendants
+
+
+def _is_ancestor(session: Session, ancestor_id: str, node_id: Optional[str]) -> bool:
+    """Prüft, ob ``ancestor_id`` ein Vorfahre von ``node_id`` ist (über ``parent_id``)."""
+    current = node_id
+    seen: set[str] = set()
+    while current is not None and current not in seen:
+        if current == ancestor_id:
+            return True
+        seen.add(current)
+        record = session.get(FileRecord, current)
+        current = record.parent_id if record else None
+    return False
+
+
+def move_file(session: Session, file_id: str, new_parent_id: Optional[str]) -> None:
+    """Verschiebt eine Datei/einen Ordner in einen anderen Ordner (``None`` = Wurzel).
+
+    Wirft ``RuntimeError`` bei ungültigem Ziel oder wenn dadurch ein Zyklus
+    entstünde (Ordner in sich selbst oder einen seiner Unterordner). Committet
+    NICHT – der Aufrufer committet (für atomare Mehrfach-Verschiebungen).
+    """
+    record = session.get(FileRecord, file_id)
+    if record is None:
+        raise RuntimeError(f"Eintrag '{file_id}' nicht gefunden.")
+
+    if new_parent_id == file_id:
+        raise RuntimeError("Ein Eintrag kann nicht in sich selbst verschoben werden.")
+
+    if new_parent_id is not None:
+        target = session.get(FileRecord, new_parent_id)
+        if target is None or not target.is_folder:
+            raise RuntimeError("Zielordner existiert nicht.")
+        # Ordner darf nicht in einen seiner eigenen Nachfahren wandern.
+        if record.is_folder and _is_ancestor(session, file_id, new_parent_id):
+            raise RuntimeError("Ein Ordner kann nicht in sich selbst verschoben werden.")
+
+    record.parent_id = new_parent_id
+    session.add(record)
+
+
+def collect_for_zip(session: Session, ids: list[str]) -> list[tuple[str, str]]:
+    """Liefert ``(arcname, file_id)``-Paare für ein ZIP über die gegebene Auswahl.
+
+    Dateien werden mit ihrem Namen aufgenommen, Ordner rekursiv mit erhaltener
+    Struktur (``Ordnername/Unterordner/Datei``). Leere Ordner entfallen.
+    """
+    entries: list[tuple[str, str]] = []
+
+    def add_folder(folder: FileRecord, prefix: str) -> None:
+        base = f"{prefix}{folder.name}/"
+        children = session.exec(
+            select(FileRecord).where(FileRecord.parent_id == folder.id)
+        ).all()
+        for child in children:
+            if child.is_folder:
+                add_folder(child, base)
+            else:
+                entries.append((f"{base}{child.name}", child.id))
+
+    for file_id in ids:
+        record = session.get(FileRecord, file_id)
+        if record is None:
+            continue
+        if record.is_folder:
+            add_folder(record, "")
+        else:
+            entries.append((record.name, record.id))
+    return entries
+
+
 def create_folder(
     session: Session, name: str, parent_id: Optional[str] = None
 ) -> dict:
@@ -168,14 +283,28 @@ def save_content(session: Session, file_id: str, content: bytes) -> None:
 
 
 def delete_file(session: Session, file_id: str) -> None:
-    """Löscht eine Datei (Bytes + DB-Eintrag). Ordner werden ebenfalls entfernt."""
+    """Löscht eine Datei oder einen Ordner.
+
+    Ordner werden **rekursiv** entfernt: alle enthaltenen Dateien/Unterordner
+    samt ihrer Bytes auf der Platte werden gelöscht. So bleiben keine verwaisten
+    Einträge oder Blob-Reste zurück.
+    """
     record = session.get(FileRecord, file_id)
     if record is None:
         raise FileNotFoundError(f"Datei '{file_id}' nicht gefunden")
 
-    path = _blob_path(file_id)
-    if os.path.exists(path):
-        os.remove(path)
+    # Bei Ordnern zuerst alle Nachfahren einsammeln und entfernen.
+    if record.is_folder:
+        for descendant in _collect_descendants(session, file_id):
+            if not descendant.is_folder:
+                blob = _blob_path(descendant.id)
+                if os.path.exists(blob):
+                    os.remove(blob)
+            session.delete(descendant)
+    else:
+        path = _blob_path(file_id)
+        if os.path.exists(path):
+            os.remove(path)
 
     session.delete(record)
     session.commit()

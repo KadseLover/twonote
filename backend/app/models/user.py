@@ -11,6 +11,8 @@ class User(UserBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     hashed_password: str
     is_active: bool = Field(default=True)
+    has_avatar: bool = Field(default=False)
+    avatar_ext: Optional[str] = Field(default=None)  # jpg, png, webp, gif
 
 
 class UserCreate(UserBase):
@@ -28,6 +30,7 @@ class UserRead(UserBase):
     """Schema für die API-Antwort (ohne Passwort)."""
     id: int
     is_active: bool
+    has_avatar: bool = False
 
 
 class Token(SQLModel):

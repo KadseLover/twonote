@@ -17,11 +17,22 @@
         v-for="file in sortedFiles"
         :key="file.id"
         class="row"
-        :class="{ active: file.id === activeId, folder: isFolder(file) }"
+        :class="{
+          active: file.id === activeId,
+          folder: isFolder(file),
+          selected: store.isSelected(file.id),
+          'drop-target': dragOverId === file.id,
+        }"
+        draggable="true"
+        @dragstart="onDragStart(file, $event)"
+        @dragend="dragOverId = null"
+        @dragover="onDragOver(file, $event)"
+        @dragleave="onDragLeave(file)"
+        @drop="onDrop(file)"
       >
         <button
           class="row-main"
-          @click="isFolder(file) ? $emit('navigate', file) : $emit('open', file)"
+          @click="onRowClick(file, $event)"
           :title="file.name"
         >
           <svg v-if="isFolder(file)" class="row-icon folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -48,6 +59,17 @@
         </button>
 
         <div class="row-actions">
+          <button
+            v-if="isFolder(file)"
+            class="action-btn ai"
+            @click.stop="$emit('open-ai', file)"
+            title="KI: Ordner zusammenfassen / Fragen"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/>
+              <path d="M19 14l.9 2.3L22 17l-2.1.7L19 20l-.9-2.3L16 17l2.1-.7z"/>
+            </svg>
+          </button>
           <button
             v-if="!isFolder(file)"
             class="action-btn"
@@ -77,8 +99,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { filesApi, type DriveFile } from '@/api'
+import { useFilesStore } from '@/stores/files'
 
 const FOLDER_MIME = 'application/vnd.twonote.folder'
 
@@ -88,11 +111,54 @@ const props = defineProps<{
   activeId?: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'open', file: DriveFile): void
   (e: 'navigate', file: DriveFile): void
   (e: 'delete', file: DriveFile): void
+  (e: 'open-ai', file: DriveFile): void
 }>()
+
+const store = useFilesStore()
+
+// ─── Auswahl & Drag-and-Drop ───
+const dragOverId = ref<string | null>(null)
+
+function onRowClick(file: DriveFile, e: MouseEvent) {
+  // Strg/Cmd+Klick: Mehrfachauswahl umschalten, nicht öffnen/navigieren.
+  if (e.ctrlKey || e.metaKey) {
+    store.toggleSelection(file.id)
+    return
+  }
+  store.clearSelection()
+  if (isFolder(file)) emit('navigate', file)
+  else emit('open', file)
+}
+
+function onDragStart(file: DriveFile, e: DragEvent) {
+  // Wird ein nicht markiertes Element gezogen, nur dieses verschieben.
+  if (!store.isSelected(file.id)) store.selectOnly(file.id)
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', 'move')
+  }
+}
+
+function onDragOver(file: DriveFile, e: DragEvent) {
+  // Nur Ordner sind Drop-Ziele; ein markierter Ordner ist kein Ziel für sich selbst.
+  if (!isFolder(file) || store.isSelected(file.id)) return
+  e.preventDefault()
+  dragOverId.value = file.id
+}
+
+function onDragLeave(file: DriveFile) {
+  if (dragOverId.value === file.id) dragOverId.value = null
+}
+
+function onDrop(file: DriveFile) {
+  dragOverId.value = null
+  if (!isFolder(file) || store.isSelected(file.id)) return
+  store.moveItems([...store.selectedIds], file.id)
+}
 
 const sortedFiles = computed(() => {
   return [...props.files].sort((a, b) => {
@@ -196,6 +262,17 @@ async function handleDownload(file: DriveFile) {
   background: var(--bg-elevated);
 }
 
+.row.selected {
+  background: var(--bg-elevated);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.row.drop-target {
+  background: var(--bg-tertiary);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
 .row-main {
   flex: 1;
   min-width: 0;
@@ -275,6 +352,10 @@ async function handleDownload(file: DriveFile) {
 
 .action-btn.delete:hover {
   color: var(--color-red);
+}
+
+.action-btn.ai:hover {
+  color: var(--accent);
 }
 
 /* Auf Touch-Geräten gibt es kein Hover → Aktionen immer einblenden. */
