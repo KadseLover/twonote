@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     onlyoffice_public_url: str = "http://localhost:8082"
     # Backend-URL aus Sicht des Document Servers (server-zu-server, im Docker-Netz).
     backend_internal_url: str = "http://backend:8000"
+    # Öffentliche Basis-URL der App (vom Browser erreichbar), z. B. für Avatar-URLs
+    # im OnlyOffice-Editor. Leer = aus den Request-Headern ableiten (reicht lokal;
+    # hinter HTTPS-Proxy/Caddy explizit setzen, z. B. https://twonote.deine-domain.de).
+    app_public_url: str = ""
 
     # CORS
     cors_origins: str = "http://localhost:5173"

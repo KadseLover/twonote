@@ -76,9 +76,23 @@ def _require_file(session: Session, file_id: str) -> FileRecord:
     return record
 
 
+def _public_base(request: Request) -> str:
+    """Öffentliche Basis-URL der App (für vom Browser ladbare Avatar-URLs).
+
+    Bevorzugt ``APP_PUBLIC_URL`` (explizit, robust hinter HTTPS-Proxys); fällt
+    sonst auf die Request-Header zurück (reicht für die lokale Entwicklung).
+    """
+    if settings.app_public_url:
+        return settings.app_public_url.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    return f"{proto}://{host}" if host else ""
+
+
 @router.get("/{file_id}/onlyoffice/config", summary="OnlyOffice-Editor-Config")
 def onlyoffice_config(
     file_id: str,
+    request: Request,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
@@ -97,6 +111,13 @@ def onlyoffice_config(
         f"?token={_make_url_token(file_id, 'callback', expires_minutes=None)}"
     )
 
+    user_cfg: dict = {"id": str(current_user.id), "name": current_user.username}
+    # Profilbild im Editor anzeigen (vom Browser ladbare, absolute URL).
+    if current_user.has_avatar:
+        base = _public_base(request)
+        if base:
+            user_cfg["image"] = f"{base}/api/auth/avatars/{current_user.id}"
+
     config: dict = {
         "document": {
             "fileType": file_type,
@@ -110,7 +131,7 @@ def onlyoffice_config(
             "mode": "edit" if editable else "view",
             "lang": "de",
             "callbackUrl": callback_url,
-            "user": {"id": str(current_user.id), "name": current_user.username},
+            "user": user_cfg,
         },
     }
 
